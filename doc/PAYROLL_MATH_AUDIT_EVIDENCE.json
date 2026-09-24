@@ -2487,26 +2487,9 @@
       "id": "EXISTING_REGRESSION_SUITE",
       "expected": "All embedded regression cases should pass.",
       "observed": {
-        "passed": 227,
-        "total": 228,
-        "failures": [
-          {
-            "id": "reg-146",
-            "name": "Day-level leave on a SHIFT day with no attendance proposes no absence (still held for review)",
-            "category": "WP1 D6: leave replaces the shift",
-            "inputDescription": "SHIFT 08:00-16:00 plus a day-level SICK segment (no times, no duration); Cognos LEAVE TYPE SICK, LEAVE HR 480; no CMS punches",
-            "cognosFlawedVerdict": "Before: no leave-day gate fired (isLeaveDay needs zero work segments) so the no-login rule wrote Absent NS/NC for a person whose sick leave ASPECT already records (27 real rows, Cognos agreeing on all)",
-            "expectedVerdict": "LEAVE_EXCLUDED, no absence, held MIXED_LEAVE_AND_WORK_SEGMENTS",
-            "expectedAction": "NO_ACTION",
-            "actualVerdict": "LEAVE_EXCLUDED (absence rows=0, hold=none)",
-            "actualAction": "NO_ACTION",
-            "passed": false,
-            "payrollImpact": "Stops a wrong Absent NS/NC being proposed - and one tick from exporting it - for a day the agent is already recorded as on leave",
-            "calculationTrace": [
-              "ruleFired: Day-level leave (SICK) already recorded on this scheduled day — excluded from attendance penalties; no absence proposed Released: no attendance in CMS or Cognos; both name SICK; no action owed."
-            ]
-          }
-        ]
+        "passed": 229,
+        "total": 229,
+        "failures": []
       }
     }
   ]
