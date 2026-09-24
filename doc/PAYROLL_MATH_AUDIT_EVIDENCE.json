@@ -1,0 +1,2513 @@
+{
+  "auditDate": "2026-09-09",
+  "timezone": "Asia/Dubai",
+  "boundaryChecks": 732,
+  "evidence": [
+    {
+      "id": "BOUNDARIES",
+      "expected": "All 732 whole-minute standard-rule cases and full cover durations match independent policy expectations.",
+      "observed": {
+        "passed": 732
+      }
+    },
+    {
+      "id": "F01_EXISTING_COVER",
+      "expected": "New 6-minute cover starts 17:12 after the existing cover.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "LATE",
+          "action": "LATE_AND_COVER",
+          "included": true,
+          "late": 6,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 6,
+          "measurements": [
+            {
+              "label": "LATE_LOGIN",
+              "anchorLabel": "effectiveStart (raw start plus any leading release)",
+              "anchorTime": "09:00",
+              "comparedTo": "09:06",
+              "minutes": 6,
+              "bandId": "rule-late-ops-band1",
+              "bandDescription": "6 to 60 minutes",
+              "bandAction": "LATE_AND_COVER"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "LATE",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "09:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Late Login 6m"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "COVER",
+              "nominateDate": "28/09/2026",
+              "SegmentDate": "28/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:54",
+              "recomputedMinutes": 474,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:06",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "-00:06",
+              "recomputedMinutes": -6,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F02_SPLIT_SHIFT",
+      "expected": "The 16:00 second block must detect the 18:00 arrival or be held as unsupported.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 360,
+          "start": "09:00",
+          "end": "19:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 12:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "16:00 - 19:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "06:00",
+              "recomputedMinutes": 360,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "10:00",
+              "recomputedMinutes": 600,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "19:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F03_MISSING_AGENT",
+      "expected": "An export containing only another Login ID cannot prove this employee was absent.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "NO_SHOW",
+          "action": "ABSENT_NS_NC",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "Absent NS/NC",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "",
+              "SegmentStarttime": "",
+              "Segmentduration": "",
+              "Memo": "TAA Full Shift Absence NS/NC"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F04_OVERLAP_TRAILING",
+      "expected": "Two removals of the same physical hour should remove 60 minutes once, or require review; 420 minutes remain.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 420,
+          "start": "09:00",
+          "end": "16:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00",
+              "recomputedMinutes": 420,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00",
+              "recomputedMinutes": 420,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "16:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "-01:00",
+              "recomputedMinutes": -60,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F04_OVERLAP_LEADING",
+      "expected": "The same leading hour removed twice must not move required arrival from 10:00 to 11:00.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "LATE",
+          "action": "LATE_AND_COVER",
+          "included": true,
+          "late": 60,
+          "early": 0,
+          "net": 420,
+          "start": "10:00",
+          "end": "17:00",
+          "charged": 60,
+          "measurements": [
+            {
+              "label": "LATE_LOGIN",
+              "anchorLabel": "effectiveStart (raw start plus any leading release)",
+              "anchorTime": "10:00",
+              "comparedTo": "11:00",
+              "minutes": 60,
+              "bandId": "rule-late-ops-band1",
+              "bandDescription": "6 to 60 minutes",
+              "bandAction": "LATE_AND_COVER"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "LATE",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "10:00",
+              "Segmentduration": "01:00",
+              "Memo": "TAA Late Login 60m"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "COVER",
+              "nominateDate": "28/09/2026",
+              "SegmentDate": "28/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "01:00",
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00",
+              "recomputedMinutes": 420,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "06:00",
+              "recomputedMinutes": 360,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "11:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "-02:00",
+              "recomputedMinutes": -120,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "V01_FLEX_OT_DURATION",
+      "expected": "Regression guard: flex shift update must identify the original 8-hour SHIFT, not replace a fabricated 10-hour SHIFT while keeping the 2-hour OT.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "ABSENT",
+          "action": "ABSENT_SEGMENT",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 600,
+          "start": "08:00",
+          "end": "17:00",
+          "charged": 60,
+          "measurements": [
+            {
+              "label": "LATE_LOGOUT",
+              "anchorLabel": "flex shifted end (snapped start + SHIFT effective duration)",
+              "anchorTime": "17:00",
+              "comparedTo": "18:00",
+              "minutes": 60,
+              "bandId": "rule-lateout-ofcr",
+              "bandDescription": "1 hour and above (60+ min)",
+              "bandAction": "ABSENT_SEGMENT"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "10",
+              "ID": "AUDIT",
+              "SegmentCode": "shift",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "07:00",
+              "Segmentduration": "08:00",
+              "Memo": "OrginalShift"
+            },
+            {
+              "Code": "11",
+              "ID": "AUDIT",
+              "SegmentCode": "shift",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "08:00",
+              "Memo": "updatedshift"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "ABSENT",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "",
+              "SegmentStarttime": "",
+              "Segmentduration": "",
+              "Memo": "TAA Late Logout 60m"
+            },
+            {
+              "Code": "10",
+              "ID": "AUDIT",
+              "SegmentCode": "OT1",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "15:00",
+              "Segmentduration": "02:00",
+              "Memo": "TAA Absent Day: original OT1 segment being replaced by SHIFT"
+            },
+            {
+              "Code": "11",
+              "ID": "AUDIT",
+              "SegmentCode": "SHIFT",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "15:00",
+              "Segmentduration": "02:00",
+              "Memo": "TAA Absent Day: OT1 segment converted to SHIFT"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00 - 15:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "15:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "15:00 - 17:00",
+              "recomputedMinutes": 120,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "10:00",
+              "recomputedMinutes": 600,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "10:00",
+              "recomputedMinutes": 600,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "18:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "-01:00",
+              "recomputedMinutes": -60,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "01:00",
+              "recomputedMinutes": 60,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F06_FLEX_AUDIT",
+      "expected": "Flex arrival 08:00 moves end to 16:00; logout 15:54 is 6 minutes early, and the audit must display the same anchor/minutes.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "EARLY_LOGOUT",
+          "action": "LOGOFF_AND_COVER",
+          "included": true,
+          "late": 0,
+          "early": 6,
+          "net": 480,
+          "start": "08:00",
+          "end": "16:00",
+          "charged": 6,
+          "measurements": [
+            {
+              "label": "EARLY_LOGOUT",
+              "anchorLabel": "flex shifted end (snapped start + SHIFT effective duration)",
+              "anchorTime": "16:00",
+              "comparedTo": "15:54",
+              "minutes": 6,
+              "bandId": "rule-earlyout-ofcr-band1",
+              "bandDescription": "6 to 20 minutes",
+              "bandAction": "LOGOFF_AND_COVER"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "10",
+              "ID": "AUDIT",
+              "SegmentCode": "shift",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "07:00",
+              "Segmentduration": "08:00",
+              "Memo": "OrginalShift"
+            },
+            {
+              "Code": "11",
+              "ID": "AUDIT",
+              "SegmentCode": "shift",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "08:00",
+              "Memo": "updatedshift"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "Log_off",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "15:54",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Early Logout 6m"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "COVER",
+              "nominateDate": "28/09/2026",
+              "SegmentDate": "28/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00 - 15:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:54",
+              "recomputedMinutes": 474,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "15:54",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "-01:00",
+              "recomputedMinutes": -60,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:54",
+              "recomputedMinutes": 54,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F07_COVER_SECONDS",
+      "expected": "Under the documented minute-only contract, cover 17:00-17:05 with logout 17:01 has a 4-minute shortfall, below the OPS band.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 485,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 0,
+          "measurements": [
+            {
+              "label": "LATE_LOGOUT",
+              "anchorLabel": "effectiveEnd (raw end minus trailing release/nursing) — NOT the rostered end",
+              "anchorTime": "17:00",
+              "comparedTo": "17:01",
+              "minutes": 1
+            }
+          ],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:05",
+              "recomputedMinutes": 485,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:01",
+              "recomputedMinutes": 481,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:01",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:01",
+              "recomputedMinutes": 1,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F07_OT_SECONDS",
+      "expected": "Under minute-only arithmetic, 60-minute OT minus release 17:30-18:00 leaves 30 minutes.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 510,
+          "start": "09:00",
+          "end": "17:30",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [
+            {
+              "Code": "10",
+              "ID": "AUDIT",
+              "SegmentCode": "OT1",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "17:00",
+              "Segmentduration": "01:00",
+              "Memo": "TAA Original OT before RLS adjustment"
+            },
+            {
+              "Code": "11",
+              "ID": "AUDIT",
+              "SegmentCode": "OT1",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "17:00",
+              "Segmentduration": "00:30",
+              "Memo": "TAA OT adjusted for overlapping RLS"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "SHIFT",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "17:30",
+              "Segmentduration": "00:30",
+              "Memo": "TAA RLS-released OT1 time converted to SHIFT"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00 - 18:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00 - 18:00",
+              "recomputedMinutes": 60,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:30",
+              "recomputedMinutes": 510,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:30",
+              "recomputedMinutes": 510,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:30",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "-00:30",
+              "recomputedMinutes": -30,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F08_FLEX_COVER_SKIP",
+      "expected": "Flex rows must still run Cover Not Attended: 10 scheduled cover minutes with zero attended minutes should not be exported as PRESENT.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "ABSENT",
+          "action": "ABSENT_SEGMENT",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 490,
+          "start": "07:00",
+          "end": "15:00",
+          "charged": 10,
+          "measurements": [
+            {
+              "label": "COVER_NOT_ATTENDED",
+              "anchorLabel": "COVER segment 15:00-15:10 (10m scheduled, 0m attended)",
+              "anchorTime": "15:00",
+              "comparedTo": "15:10",
+              "minutes": 10,
+              "bandId": "rule-covermiss-ofcr-band1",
+              "bandDescription": "6 to 19 minutes",
+              "bandAction": "ABSENT_SEGMENT"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "ABSENT",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "",
+              "SegmentStarttime": "",
+              "Segmentduration": "",
+              "Memo": "TAA Cover Not Attended 10m"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00 - 15:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:10",
+              "recomputedMinutes": 490,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "15:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F14_FLEX_OT_RLS_SKIP",
+      "expected": "Flex rows must still adjust OT when a release overlaps OT: OT1 15:00-17:00 with RLS 16:30-17:00 should emit an adjusted 90-minute OT pair.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 570,
+          "start": "07:00",
+          "end": "17:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [
+            {
+              "Code": "10",
+              "ID": "AUDIT",
+              "SegmentCode": "OT1",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "15:00",
+              "Segmentduration": "02:00",
+              "Memo": "TAA Original OT before RLS adjustment"
+            },
+            {
+              "Code": "11",
+              "ID": "AUDIT",
+              "SegmentCode": "OT1",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "15:00",
+              "Segmentduration": "01:30",
+              "Memo": "TAA OT adjusted for overlapping RLS"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "SHIFT",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "16:30",
+              "Segmentduration": "00:30",
+              "Memo": "TAA RLS-released OT1 time converted to SHIFT"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00 - 15:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "15:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "15:00 - 17:00",
+              "recomputedMinutes": 120,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "09:30",
+              "recomputedMinutes": 570,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "10:00",
+              "recomputedMinutes": 600,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "07:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F09_CONFIG_ACTION",
+      "expected": "Setting No Login Record to NO_ACTION must not emit an absence.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F09_CONFIG_OT",
+      "expected": "Disabling the OT/RLS action must suppress its correction pair.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 510,
+          "start": "09:00",
+          "end": "17:30",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00 - 18:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00 - 18:00",
+              "recomputedMinutes": 60,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:30",
+              "recomputedMinutes": 510,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:30",
+              "recomputedMinutes": 510,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:30",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "-00:30",
+              "recomputedMinutes": -30,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F10_FUTURE_INTEGRITY",
+      "expected": "A future target with a 1-minute DURATION/STOP disagreement must not be used to generate exportable cover.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "LATE",
+          "action": "LATE_AND_COVER",
+          "included": true,
+          "late": 6,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 6,
+          "measurements": [
+            {
+              "label": "LATE_LOGIN",
+              "anchorLabel": "effectiveStart (raw start plus any leading release)",
+              "anchorTime": "09:00",
+              "comparedTo": "09:06",
+              "minutes": 6,
+              "bandId": "rule-late-ops-band1",
+              "bandDescription": "6 to 60 minutes",
+              "bandAction": "LATE_AND_COVER"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "LATE",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "09:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Late Login 6m"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "COVER",
+              "nominateDate": "28/09/2026",
+              "SegmentDate": "28/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:54",
+              "recomputedMinutes": 474,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:06",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "-00:06",
+              "recomputedMinutes": -6,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F11_DUPLICATE_SHIFT",
+      "expected": "Duplicating an identical source SHIFT must be idempotent or held; cannot silently double 480 to 960 minutes.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "PRESENT",
+          "action": "NO_ACTION",
+          "included": true,
+          "late": 0,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P01_ONE_MINUTE_TOLERANCE",
+      "expected": "Quantify the configured one-minute comparison tolerance separately from rule arithmetic.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "LATE",
+          "action": "LATE_AND_COVER",
+          "included": true,
+          "late": 6,
+          "early": 0,
+          "net": 480,
+          "start": "09:00",
+          "end": "17:00",
+          "charged": 6,
+          "measurements": [
+            {
+              "label": "LATE_LOGIN",
+              "anchorLabel": "effectiveStart (raw start plus any leading release)",
+              "anchorTime": "09:00",
+              "comparedTo": "09:06",
+              "minutes": 6,
+              "bandId": "rule-late-ops-band1",
+              "bandDescription": "6 to 60 minutes",
+              "bandAction": "LATE_AND_COVER"
+            }
+          ],
+          "corrections": [
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "LATE",
+              "nominateDate": "08/09/2026",
+              "SegmentDate": "08/09/2026",
+              "SegmentStarttime": "09:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Late Login 6m"
+            },
+            {
+              "Code": "00",
+              "ID": "AUDIT",
+              "SegmentCode": "COVER",
+              "nominateDate": "28/09/2026",
+              "SegmentDate": "28/09/2026",
+              "SegmentStarttime": "08:00",
+              "Segmentduration": "00:06",
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+            }
+          ],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "09:00 - 17:00",
+              "status": "COGNOS_BLANK"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "08:01",
+              "recomputedRaw": "08:00",
+              "recomputedMinutes": 480,
+              "status": "MATCH"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "07:54",
+              "recomputedMinutes": 474,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "09:05",
+              "recomputedRaw": "09:06",
+              "status": "MATCH"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "17:00",
+              "recomputedRaw": "17:00",
+              "status": "MATCH"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "-5",
+              "recomputedRaw": "-00:06",
+              "recomputedMinutes": -6,
+              "status": "MATCH"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Cognos never captured this value"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F12_EXPLICIT_LEAVE_DURATION",
+      "expected": "An ANNUAL segment carrying explicit 60-minute duration should be checked against LEAVE HR=480, not suppressed by code name.",
+      "observed": [
+        {
+          "id": "rec-0-AUDIT",
+          "verdict": "LEAVE_EXCLUDED",
+          "action": "NO_ACTION",
+          "included": false,
+          "hold": "MISMATCH_FOUND",
+          "late": 0,
+          "early": 0,
+          "net": 0,
+          "start": "",
+          "end": "",
+          "charged": 0,
+          "measurements": [],
+          "corrections": [],
+          "comparisons": [
+            {
+              "column": "DUTY1",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Leave day — Cognos shows the paid-leave roster entitlement, not a shift to attend"
+            },
+            {
+              "column": "DUTY-2",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE",
+              "note": "Leave day — Cognos shows the paid-leave roster entitlement, not a shift to attend"
+            },
+            {
+              "column": "OT1",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "OT-2",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "recomputedMinutes": 0,
+              "status": "COGNOS_BLANK",
+              "note": "Structurally blank in Cognos — filled from recompute"
+            },
+            {
+              "column": "SCH DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "00:00",
+              "status": "NOT_COMPARABLE",
+              "note": "Leave day — Cognos shows the paid-leave roster entitlement, not a shift to attend"
+            },
+            {
+              "column": "SIGNIN DURATION",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN IN",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "SIGIN OUT",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LATE START",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEFT EARLY",
+              "cognosRaw": "",
+              "recomputedRaw": "",
+              "status": "NOT_COMPARABLE"
+            },
+            {
+              "column": "LEAVE TYPE",
+              "cognosRaw": "ANNUAL",
+              "recomputedRaw": "ANNUAL",
+              "status": "MATCH"
+            },
+            {
+              "column": "LEAVE HR",
+              "cognosRaw": "480",
+              "recomputedRaw": "01:00",
+              "recomputedMinutes": 60,
+              "status": "MISMATCH"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F13_DURATION_PARSER",
+      "expected": "Invalid/fractional duration text must be rejected explicitly, not silently truncated or treated as a missing field.",
+      "observed": [
+        {
+          "raw": "480.9",
+          "result": [
+            {
+              "id": "rec-0-AUDIT",
+              "verdict": "PRESENT",
+              "action": "NO_ACTION",
+              "included": false,
+              "hold": "DURATION_TEXT_REPAIRED_FROM_TIMESTAMPS",
+              "late": 0,
+              "early": 0,
+              "net": 480,
+              "start": "09:00",
+              "end": "17:00",
+              "charged": 0,
+              "measurements": [],
+              "corrections": [],
+              "comparisons": [
+                {
+                  "column": "DUTY1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00 - 17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "DUTY-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "OT1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "OT-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "SCH DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "SIGNIN DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+                },
+                {
+                  "column": "SIGIN IN",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "SIGIN OUT",
+                  "cognosRaw": "",
+                  "recomputedRaw": "17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "LATE START",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEFT EARLY",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEAVE TYPE",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "LEAVE HR",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE",
+                  "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "480garbage",
+          "result": [
+            {
+              "id": "rec-0-AUDIT",
+              "verdict": "PRESENT",
+              "action": "NO_ACTION",
+              "included": false,
+              "hold": "DURATION_TEXT_REPAIRED_FROM_TIMESTAMPS",
+              "late": 0,
+              "early": 0,
+              "net": 480,
+              "start": "09:00",
+              "end": "17:00",
+              "charged": 0,
+              "measurements": [],
+              "corrections": [],
+              "comparisons": [
+                {
+                  "column": "DUTY1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00 - 17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "DUTY-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "OT1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "OT-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "SCH DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "SIGNIN DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+                },
+                {
+                  "column": "SIGIN IN",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "SIGIN OUT",
+                  "cognosRaw": "",
+                  "recomputedRaw": "17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "LATE START",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEFT EARLY",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEAVE TYPE",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "LEAVE HR",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE",
+                  "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "not-a-number",
+          "result": [
+            {
+              "id": "rec-0-AUDIT",
+              "verdict": "PRESENT",
+              "action": "NO_ACTION",
+              "included": false,
+              "hold": "DURATION_TEXT_REPAIRED_FROM_TIMESTAMPS",
+              "late": 0,
+              "early": 0,
+              "net": 480,
+              "start": "09:00",
+              "end": "17:00",
+              "charged": 0,
+              "measurements": [],
+              "corrections": [],
+              "comparisons": [
+                {
+                  "column": "DUTY1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00 - 17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "DUTY-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "OT1",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "OT-2",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Structurally blank in Cognos — filled from recompute"
+                },
+                {
+                  "column": "SCH DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "SIGNIN DURATION",
+                  "cognosRaw": "",
+                  "recomputedRaw": "08:00",
+                  "recomputedMinutes": 480,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value CMS staffed (login→logout summed) time: 00:00."
+                },
+                {
+                  "column": "SIGIN IN",
+                  "cognosRaw": "",
+                  "recomputedRaw": "09:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "SIGIN OUT",
+                  "cognosRaw": "",
+                  "recomputedRaw": "17:00",
+                  "status": "COGNOS_BLANK"
+                },
+                {
+                  "column": "LATE START",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEFT EARLY",
+                  "cognosRaw": "",
+                  "recomputedRaw": "00:00",
+                  "recomputedMinutes": 0,
+                  "status": "COGNOS_BLANK",
+                  "note": "Cognos never captured this value"
+                },
+                {
+                  "column": "LEAVE TYPE",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE"
+                },
+                {
+                  "column": "LEAVE HR",
+                  "cognosRaw": "",
+                  "recomputedRaw": "",
+                  "status": "NOT_COMPARABLE",
+                  "note": "Full standard day by design (no ASPECT-recorded duration to compare)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EXISTING_REGRESSION_SUITE",
+      "expected": "All embedded regression cases should pass.",
+      "observed": {
+        "passed": 227,
+        "total": 228,
+        "failures": [
+          {
+            "id": "reg-146",
+            "name": "Day-level leave on a SHIFT day with no attendance proposes no absence (still held for review)",
+            "category": "WP1 D6: leave replaces the shift",
+            "inputDescription": "SHIFT 08:00-16:00 plus a day-level SICK segment (no times, no duration); Cognos LEAVE TYPE SICK, LEAVE HR 480; no CMS punches",
+            "cognosFlawedVerdict": "Before: no leave-day gate fired (isLeaveDay needs zero work segments) so the no-login rule wrote Absent NS/NC for a person whose sick leave ASPECT already records (27 real rows, Cognos agreeing on all)",
+            "expectedVerdict": "LEAVE_EXCLUDED, no absence, held MIXED_LEAVE_AND_WORK_SEGMENTS",
+            "expectedAction": "NO_ACTION",
+            "actualVerdict": "LEAVE_EXCLUDED (absence rows=0, hold=none)",
+            "actualAction": "NO_ACTION",
+            "passed": false,
+            "payrollImpact": "Stops a wrong Absent NS/NC being proposed - and one tick from exporting it - for a day the agent is already recorded as on leave",
+            "calculationTrace": [
+              "ruleFired: Day-level leave (SICK) already recorded on this scheduled day — excluded from attendance penalties; no absence proposed Released: no attendance in CMS or Cognos; both name SICK; no action owed."
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

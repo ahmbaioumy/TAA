@@ -1,0 +1,16 @@
+# Real employee data (PII) and outputs derived from it — never committed
+samples_Files/
+audit_outputs/
+scratch_ids.txt
+# Build/tooling
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.log
+.env*
+!.env.example
+.claude/settings.local.json
+TAA_HTML/
+.claude/scheduled_tasks.lock

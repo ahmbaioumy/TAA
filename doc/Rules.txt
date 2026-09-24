@@ -1,0 +1,19 @@
+DEPRECATED — do not implement from this file. Authoritative source: samples_Files/Rules to be taken.xlsx (and its content-identical twin, samples_Files/Rules to be taken.csv). This file disagrees with the authoritative rules (e.g. Officer late threshold and early-logout bands) and is kept only as a historical/negative-control reference.
+
+late ( variance between the shift start time vs the first login time ) / Cover ( after the shift end time ):
+
+CSR/Agent late  >=6 Min <1hrs: add Segment late and add segment cover in next working day 
+CSR/Agent late>1hrs: add segment Absent for the nominate date
+
+Non CSR ( Officer / Coordinator/else) : late>=10 Min <1hrs: add Segment late and add segment cover in next working day 
+Non CSR ( Officer / Coordinatore/else) : late>1hrs: add segment Absent for the nominate date
+
+
+leave early ( Logout before the Schdule shift end time ) 
+any staff : <= 1 hr , add segment logoff and add cover next working date 
+any staff : > 1 hr , add segment Absent for the same nominate date
+
+
+Not login ( as per the CMS actual Login at the nominate Date of the schdule shift ) 
+
+any staff : add segment Absent for the same nominate date
