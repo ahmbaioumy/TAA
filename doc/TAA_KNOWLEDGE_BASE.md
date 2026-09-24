@@ -1393,6 +1393,45 @@ only by the `DEFAULT_CONFIG` merge) — a replay before and after confirms zero 
 `TAA_Workspace.html` was **not** rebuilt for this package: `samples_Files/` is never bundled into
 it (confirmed §6's build audit) and no `src/` runtime behaviour changed.
 
+## 7p. Hold Policy tab — per staff category × action pre-approval (2026-09-24)
+
+Verified facts, real 23/09-week (24/09/2026 processing date, 218 rows, 94 held/43.1% under
+`releaseProvenSafeHolds=true`):
+- Default policy (`{ released: [] }`) is byte-identical to no policy at all — `held-breakdown.ts`
+  with and without an explicit `--policy` flag both report 94 held, 0 verdict/action/
+  actionsFired/late/early/correction diffs.
+- Unticking `FLEX|MISMATCH_FOUND:SHIFT|NO_ACTION` and `FLEX|MISMATCH_FOUND:SHIFT|SHIFT_UPDATE`
+  drops held to **61** (28.0%), releasing 33 rows, **0** pay-affecting diffs (verdict, action,
+  actionsFired, late/early minutes, and generated corrections all identical before/after —
+  `applyHoldPolicy` only ever clears `holdReason`/flips `includeInOutput`).
+- Shift folding (`cognosComparison.ts`'s `policyGroup` + the `DUTY1`-move comparison): 52 of 53
+  flex `MISMATCH_FOUND` rows carrying a `DUTY1` mismatch fold their `LATE START`/`LEFT EARLY`
+  gap into the `SHIFT` group; flex `LATE_EARLY` (as its own disagreement, not shift-caused)
+  drops to 1 real row on this week's data.
+- `HOLD_REASON_TEXT` (the exhaustive `Record<HoldReasonCode, string>` the Hold Policy tab's
+  rows are built from) moved from `reconciliationEngine.ts` to `holdReasons.ts` — a pure
+  relocation (re-exported, same object, same text) done specifically so `holdPolicy.ts` (and
+  transitively `configRegistry.ts`, which imports its `sanitizeHoldPolicy` for JSON import)
+  never has a runtime dependency on the engine, avoiding a `configRegistry.ts → holdPolicy.ts →
+  reconciliationEngine.ts → configRegistry.ts` import cycle. `applyHoldPolicy` itself only
+  type-imports `ReconciliationOutput` from `reconciliationEngine.ts` (erased at compile time)
+  and receives `rebuildOutputs`/`rowIsMustCheck` as injected `deps` from `pipeline.ts`, for the
+  same reason.
+- `runReconciliationWithAudit` (engine → unseen-punch audit → Hold Policy → initial review
+  status) moved out of `App.tsx` into `src/services/pipeline.ts` — previously `App.tsx` and
+  `scripts/held-breakdown.ts` each re-implemented a slightly different chain (the script's
+  `--compare-gates` path skipped the audit and any policy entirely); both now call the one
+  function, so `--policy`/`--with-audit`/`--gates` on `held-breakdown.ts` exercise the exact
+  same ordering the UI does.
+- Proof step performed and reverted: temporarily adding a fake value to `ROLE_TIERS`
+  (`src/types/taa.ts`) makes `npm run test:hold-policy` fail with `New RoleTier
+  'FAKE_TIER_PROOF_STEP' has no Hold Policy tab — see src/services/holdPolicy.ts
+  (STAFF_CATEGORIES / CATEGORY_LABELS)`, confirming the exhaustiveness guard actually fires
+  (not just compiles) before the change was reverted.
+- Regression suite (231/231) and trust matrix (157/157) both call `runReconciliation` directly
+  (never `pipeline.ts`), confirmed unaffected by this change — `npm test` was re-run green
+  end-to-end after the feature landed.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

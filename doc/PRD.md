@@ -1348,6 +1348,110 @@ The legacy macro's silent `ACCESS CARD*`/`UAE*` row-drop (§3.2 point 3) is **no
 
 ---
 
+## 8a. Hold Policy (per staff category × action)
+
+**Problem.** Even after the proven-safe held-review-reduction gates (§Non-negotiables'
+`releaseProvenSafeHolds`), a real week's run still holds a large share of rows for reasons the
+business already understands well enough to pre-approve in advance — e.g. a flex employee
+whose ASPECT shift moved vs the Cognos roster. The Hold Policy tab lets a reviewer decide, in
+advance, per **staff category × hold reason (or, for a Cognos mismatch, its column group) ×
+action group**, whether that combination should still be held for review or released straight
+to output.
+
+**Data model** (`src/types/taa.ts`'s `HoldPolicy`, `ConfigRegistry.holdPolicy`):
+`{ released: string[] }` — a flat, fail-closed list of cell ids the user has unticked
+("release this"). Anything NOT in the list stays held. Cell id =
+`"<StaffCategory>|<RuleKey>|<ActionGroup>"`:
+- `StaffCategory` = `RoleTier` (`'OPS' | 'OFFICER_PLUS'`) or `'FLEX'` — `ReconciliationRow.TAA_TIER`
+  already folds `isFlex` ahead of tier, so this is read directly, never re-derived.
+- `RuleKey` = a `HoldReasonCode`, or for `MISMATCH_FOUND` a column-group key
+  `MISMATCH_FOUND:SHIFT|LATE_EARLY|SCHEDULE|SIGN_IN|LEAVE|NO_COLUMN|OTHER` — see "Column
+  grouping" below.
+- `ActionGroup` = one of 6 groups the 10 `TaaActionCode` values fold into: `NO_ACTION`,
+  `LATE_COVER`, `LOGOFF_COVER`, `ABSENT` (`ABSENT_SEGMENT`/`ABSENT_NS_NC`), `SHIFT_UPDATE`
+  (both flex shift-update actions), `OT` (`ADJUST_OT_RLS`/`OT_TO_SHIFT`).
+  `MANUAL_REVIEW_REQUIRED` is never a column — that action is always held.
+
+**Single module** (`src/services/holdPolicy.ts`) owns the whole feature; everything else is
+private to it:
+- `classifyHold(row)` → `HoldCell | 'LOCKED' | null` — the ONE classifier (category,
+  actionGroup, ruleKeys[]) used by both `applyHoldPolicy` and the UI's "N rows last run"
+  counts, so the count a reviewer sees can never disagree with what a tick actually releases.
+- `applyHoldPolicy(output, config, deps)` — pure; releases a held row only if **every**
+  ruleKey `classifyHold` reports for it is in `config.holdPolicy.released` (a `MISMATCH_FOUND`
+  row needs every disagreeing column's group released — "a row stays held if another column
+  also disagrees"). Never touches verdict/action/corrections — only `holdReason`/
+  `holdReasonText`/`includeInOutput`/`includeDecisionSource` (`'policy'`) and a new
+  `details.holdPolicyRelease` trace field. Rebuilds the 4 downstream exports + summary counts
+  via `outputRebuild.ts`/`rowIsMustCheck` (injected as `deps`, not value-imported, to avoid a
+  `configRegistry.ts → holdPolicy.ts → outputRebuild.ts → reconciliationEngine.ts →
+  configRegistry.ts` import cycle — `configRegistry.ts`'s `importConfigFromJson` calls this
+  file's `sanitizeHoldPolicy`). Stamps a policy fingerprint on the output for the stale check.
+- `holdPolicyLayout()` → `{ tabs, rows, columns, locked }`, built from `ROLE_TIERS`
+  (`src/types/taa.ts`) + `HOLD_REASON_TEXT`/`FORCED_HOLD_REASONS` (`holdReasons.ts`) + the
+  action→group map — the UI renders only this, nothing hand-maintained.
+- `sanitizeHoldPolicy(raw)` — filters a raw/imported policy to structurally valid,
+  non-locked ids (fail-closed: malformed input becomes `{ released: [] }`).
+- `isResultStale(output, policy)` — true when the saved policy's fingerprint differs from the
+  one stamped on `output` by the last `applyHoldPolicy` run.
+
+**Column grouping & shift folding** (`cognosComparison.ts`): `compareCognosRow` stamps every
+`ColumnComparison` with a `policyGroup` (`'SHIFT' | 'LATE_EARLY' | 'SCHEDULE' | 'SIGN_IN' |
+'LEAVE' | 'OTHER'`) via a typed column→group map (`COLUMN_POLICY_GROUP`), default `'OTHER'` for
+an unmapped/future column. **Shift folding**: when `DUTY1` mismatches, a `LATE START` gap equal
+to the start move and a `LEFT EARLY` gap equal to the end move (±`comparisonToleranceMinutes`)
+are folded into `'SHIFT'` instead of `'LATE_EARLY'` — the leftover minute gap is fully explained
+by the roster shift change, not a separate disagreement. Measured on the real 23/09/2026 week:
+52 of 53 flex mismatch rows fold this way; flex `LATE_EARLY` drops to 1 genuine row.
+`holdPolicy.ts` only reads `policyGroup` — it never re-parses "08:00 - 16:00" strings itself.
+
+**Pipeline ordering** (`src/services/pipeline.ts`'s `runReconciliationWithAudit`, the single
+wiring point `App.tsx` and `scripts/held-breakdown.ts` both call): engine →
+`runUnseenPunchAudit` → `applyHoldPolicy` → `applyInitialReviewStatus`. The policy applies
+AFTER the unseen-punch audit (so a forced re-hold wins) and BEFORE the initial review status
+(so a released row starts ✓, a still-held row starts ○). `rebuildOutputs` (reviewer
+include/exclude toggles) never re-applies the policy. The regression suite and trust matrix
+call `runReconciliation` directly — never this function — so a user's Hold Policy can never
+affect either verification suite.
+
+**Locked (forced) reasons.** `holdReasons.ts`'s `FORCED_HOLD_REASONS`, plus
+`UNSEEN_PUNCH_OUTCOME` and `MANUAL_REVIEW_REQUIRED`, can never be released by policy —
+`classifyHold` returns `'LOCKED'` for them regardless of what a tampered/hand-edited
+`released` list contains, and they render in the tab's collapsed "🔒 Always held" section.
+
+**Before vs after calculation.** Edited BEFORE calculating: the next Calculate simply applies
+the saved policy. Edited AFTER calculating (Save on the Hold Policy tab): the save does NOT
+silently change the existing output — it only marks the output **stale** (fingerprint
+mismatch): an amber banner on Hold Policy/Results/Upload, the Calculate button highlighted as
+"Re-calculate needed", and the 3 export buttons (ASPECT CSV, Annotated Cognos, Draft Emails)
+disabled with a "Re-calculate first" tooltip, until Re-calculate is clicked. Unlike Config
+Registry's own Save (which clears uploaded files), Hold Policy's Save keeps files loaded so
+Re-calculate is one click. Reverting the edit back to the currently-used policy clears the
+stale state automatically.
+
+**Import/Export.** `holdPolicy` lives inside `ConfigRegistry`, so the existing Export/Import
+Config JSON buttons carry it with no new UI. An older config JSON with no `holdPolicy` field
+defaults to `{ released: [] }` (hold everything). Import sanitizes: a released id pointing at
+a locked reason, `MANUAL_REVIEW_REQUIRED`, or an unknown/malformed tier/reason/action is
+dropped.
+
+**Extending: new staff tier / hold reason / action / Cognos column — checklist:**
+1. New `RoleTier` → add it to `ROLE_TIERS` (`src/types/taa.ts`) — the Hold Policy tab, tests,
+   and every `Record<RoleTier, …>` pick it up automatically; `holdPolicy.test.ts` fails with a
+   pointer message if any consumer isn't updated.
+2. New `HoldReasonCode` → add its text to `HOLD_REASON_TEXT` (`holdReasons.ts`, typed
+   `Record<HoldReasonCode, string>` — the compiler forces this); if it's an evidence/forced
+   reason, add it to `FORCED_HOLD_REASONS` too, or it will show as a releasable row instead of
+   locked.
+3. New `TaaActionCode` → add it to `ACTION_POLICY_GROUP` (`holdPolicy.ts`, typed
+   `Record<TaaActionCode, ActionGroup | 'OTHER'>` — the compiler forces this).
+4. New compared Cognos column → add it to `COLUMN_POLICY_GROUP` (`cognosComparison.ts`), or
+   accept the `'OTHER'` default (still renders as an auto "Other column" row).
+See `doc/CLAUDE.md`'s Non-negotiables for the one-line pointer every agent editing these types
+sees inline.
+
+---
+
 ## 9. Comprehensive Regression Suite
 
 The automated reconciliation engine must pass all validation scenarios below before production sign-off:

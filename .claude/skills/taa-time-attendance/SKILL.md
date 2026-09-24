@@ -134,5 +134,10 @@ Both directions are severe: too inclusive → staff marked absent on a day off; 
 - OT2 must surface as public-holiday OT, never merged with OT1 (different pay rates).
 - Cognos OT1/OT-2 always empty → must be backfilled from ASPECT before evaluation.
 
+## Hold Policy tab — extending
+Any new `RoleTier`, `HoldReasonCode`, `TaaActionCode`, or compared Cognos column must be wired
+into the Hold Policy tab (`src/services/holdPolicy.ts`) — checklist: `doc/PRD.md` §Hold Policy
+"Extending". A missing one fails `holdPolicy.test.ts` with a pointer message before it ships.
+
 ## Data caveats (state in any PRD/report)
 ASPECT sample = single day 28/08/2026 (a public holiday); Cognos sample = 27/08/2026. The two do not overlap — no same-person-same-day cross-file check was possible; formula validation was done entirely within Cognos rows. ASPECT mix is unrepresentative because of the holiday (467 `P/H-LV`, only 660 shifts of 1,389) — don't treat these proportions as normal. Untested paths: leading (front-of-shift) releases, genuinely gapped split shifts, partial/half-day leave codes.

@@ -76,6 +76,12 @@ tried. See `PRD.md` §4.7 for the full resolution chain including name fallback 
 manager-CC lookup.
 
 ## Non-negotiables
+- **Any new `RoleTier`, `HoldReasonCode`, `TaaActionCode`, or compared Cognos column must be
+  wired into the Hold Policy tab** (checklist: `PRD.md` §Hold Policy "Extending"). A missing
+  one fails `holdPolicy.test.ts` with a pointer message naming `src/services/holdPolicy.ts`
+  before it can ship silently — see the code comments at each type's definition
+  (`src/types/taa.ts`'s `RoleTier`/`ROLE_TIERS`/`HoldReasonCode`/`TaaActionCode`,
+  `holdReasons.ts`'s `FORCED_HOLD_REASONS`).
 - **Any input, mapping, or configuration mutation immediately invalidates prior results and
   downloads** (`App.tsx`'s `invalidateOutput()`), and every automatic-calculation path (manual
   Calculate, config Save, sample-data auto-run) shares one eligibility gate

@@ -36,5 +36,12 @@ Sample raw values the scan runs against (messy real data, illustrates why substr
 ## Why Cognos `SECTION` cannot substitute for this
 `SECTION` is a department name, not a role tier: casing and abbreviations are inconsistent (`ES-SMB OFCR` vs ASPECT's `OFFICER`), and it disagrees with ASPECT's derived tier on 36 employees. Always derive tier from the ASPECT keyword scan, never from Cognos `SECTION`.
 
+## Hold Policy tab — where a new tier plugs in
+Role tier here (`OPS`/`OFFICER_PLUS`, plus `FLEX` from the separate flex keyword scan) is the
+same `StaffCategory` the Hold Policy tab tabs on (`src/services/holdPolicy.ts`, `ROLE_TIERS` in
+`src/types/taa.ts`). Adding a new tier/keyword category here — not just a new keyword in an
+existing tier's list — must also land it in the Hold Policy tab; see `doc/PRD.md` §Hold Policy
+"Extending" checklist. A missing tier fails `holdPolicy.test.ts` with a pointer message.
+
 ## Extending the pattern
 Any future flag that's really "does this free-text field contain one of a known set of tokens" (e.g. a new department code, a new leave-type abbreviation) should reuse this same scan-plus-config-keyword-list shape rather than growing new bespoke string logic. Keep keyword lists in the same editable config surface as the rule-engine thresholds (`standalone-html-tool-building` skill) so a business-side change is a data edit.
