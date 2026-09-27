@@ -3,7 +3,7 @@
  * Does not change app code, source inputs, configuration, or payroll data.
  */
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync } from 'node:fs';
 import { DEFAULT_CONFIG } from '../src/services/configRegistry';
 import { runReconciliation } from '../src/services/reconciliationEngine';
 import { runAllRegressionTests } from '../src/services/regressionSuite';
@@ -135,7 +135,8 @@ record('EXISTING_REGRESSION_SUITE','All embedded regression cases should pass.',
 // repointed at the current filenames, to avoid two divergent real-data proofs.
 // Run: npm run test:replay-real -- --date=DD/MM/YYYY --out=<dir>
 
-writeFileSync('../doc/PAYROLL_MATH_AUDIT_EVIDENCE.json',JSON.stringify({auditDate:'2026-09-09',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,boundaryChecks,evidence},null,2));
+const docPath = existsSync('doc') ? 'doc/PAYROLL_MATH_AUDIT_EVIDENCE.json' : '../doc/PAYROLL_MATH_AUDIT_EVIDENCE.json';
+writeFileSync(docPath,JSON.stringify({auditDate:'2026-09-09',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,boundaryChecks,evidence},null,2));
 console.log(`Independent standard boundary checks: ${boundaryChecks}/${boundaryChecks} passed.`);
 console.log(`Embedded regressions: ${regressions.filter(r=>r.passed).length}/${regressions.length} passed.`);
 for(const e of evidence) console.log(`${e.id}: ${JSON.stringify(e.observed).slice(0,520)}`);
