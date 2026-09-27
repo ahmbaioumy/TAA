@@ -510,6 +510,8 @@ export const DEFAULT_CONFIG: ConfigRegistry = {
 
   sectionMailboxMap: [],
   defaultOpsMailbox: 'ops@thecontactcentre.ae', // Fallback for Sections with no mapping — blank to hold them instead
+  emailZipEnabled: true, // Bundle a multi-draft batch into one .zip (avoids the browser's multi-download prompt)
+  emailZipThreshold: 2, // The browser prompts from the 2nd automatic download on
   employeeManagerMap: [],
   emailCorporateDomains: ['thecontactcentre.ae'],
 
@@ -753,6 +755,18 @@ export function normalizeDefaultOpsMailbox(raw: unknown): string {
   return raw.trim();
 }
 
+// Missing / non-boolean (older saved/exported config) -> the shipped default (ON).
+export function normalizeEmailZipEnabled(raw: unknown): boolean {
+  return typeof raw === 'boolean' ? raw : DEFAULT_CONFIG.emailZipEnabled;
+}
+
+// Missing / non-numeric -> the shipped default; otherwise a whole number >= 1.
+export function normalizeEmailZipThreshold(raw: unknown): number {
+  const n = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULT_CONFIG.emailZipThreshold;
+  return Math.max(1, Math.floor(n));
+}
+
 export function normalizeSectionMailboxMap(raw: unknown): SectionMailboxRule[] {
   if (!Array.isArray(raw)) return [];
   const bySection = new Map<string, string>();
@@ -975,6 +989,8 @@ export function loadConfigRegistry(): ConfigRegistry {
         cmsPreservedFilePatterns: normalizePreservedFilePatterns(parsed.cmsPreservedFilePatterns),
         sectionMailboxMap: normalizeSectionMailboxMap(parsed.sectionMailboxMap),
         defaultOpsMailbox: normalizeDefaultOpsMailbox(parsed.defaultOpsMailbox),
+        emailZipEnabled: normalizeEmailZipEnabled(parsed.emailZipEnabled),
+        emailZipThreshold: normalizeEmailZipThreshold(parsed.emailZipThreshold),
         employeeManagerMap: normalizeEmployeeManagerMap(parsed.employeeManagerMap),
       };
     }
@@ -1028,6 +1044,8 @@ export function importConfigFromJson(jsonStr: string): ConfigRegistry {
     cmsPreservedFilePatterns: normalizePreservedFilePatterns(parsed.cmsPreservedFilePatterns),
     sectionMailboxMap: normalizeSectionMailboxMap(parsed.sectionMailboxMap),
     defaultOpsMailbox: normalizeDefaultOpsMailbox(parsed.defaultOpsMailbox),
+    emailZipEnabled: normalizeEmailZipEnabled(parsed.emailZipEnabled),
+    emailZipThreshold: normalizeEmailZipThreshold(parsed.emailZipThreshold),
     employeeManagerMap: normalizeEmployeeManagerMap(parsed.employeeManagerMap),
     // Hold Policy (doc/PRD.md §Hold Policy) — sanitizeHoldPolicy drops malformed ids and
     // any id pointing at a locked (forced/evidence) reason or MANUAL_REVIEW_REQUIRED, so a

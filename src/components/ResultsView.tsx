@@ -25,7 +25,7 @@ import { isForcedHoldReason } from '../services/holdReasons';
 import { nextReviewStatus, countNotReviewed, reviewStatusLabel } from '../services/reviewStatus';
 import { isCodeInConfiguredSet } from '../services/scheduleRecompute';
 import { buildIndividualOverride, findSectionMailbox, planEmailDraftActions } from '../services/emailDrafts';
-import { buildEmlFile, buildUniqueEmlFileNames } from '../services/emlBuilder';
+import { buildEmlForAction, buildEmlZip, buildEmlZipFileName, buildUniqueEmlFileNames, resolveEmlRecipient, shouldBundleEmlZip } from '../services/emlBuilder';
 import { serializeVerificationOverrideAudit, verificationFailedCheckSummary } from '../services/verificationAudit';
 import { buildResultsWorkbookSheets, rowHasLateCoverCorrection, rowHasShiftChangeCorrection, rowIsMustCheck, describeDisagreement } from '../services/reconciliationEngine';
 import { buildXlsxWorkbook } from '../services/xlsxWriter';
@@ -337,7 +337,7 @@ export function ResultsView({
   // (config.defaultOpsMailbox) when one is set; otherwise they are HELD —
   // reported below, not drafted, and never re-routed to the employee. The single-row "draft this
   // one" icon can still override an individual case, but only behind an
-  // explicit confirmation (see handleRowDraft).
+  // explicit confirmation (see resolveRowDraftAction).
   const bulkDraftPlan = useMemo(
     () => planEmailDraftActions(eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox),
     [eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox]
@@ -377,25 +377,42 @@ export function ResultsView({
   // download, so nothing is silently skipped, but the count below flags them
   // for manual addressing.
   //
-  // Downloads are staggered a little: Chrome can block/prompt on a burst of
-  // several automatic downloads fired in the same tick.
+  // When config.emailZipEnabled is on and the batch reaches
+  // config.emailZipThreshold, the same .eml files arrive as ONE .zip download:
+  // a burst of automatic downloads trips the browser's "download multiple
+  // files" prompt from the 2nd file on. Below the threshold (or with the
+  // toggle off) downloads are separate and staggered a little, since Chrome
+  // can block/prompt on several downloads fired in the same tick.
   const launchEmailDrafts = (actions: EmailActionItem[]) => {
     if (actions.length === 0 || isDrafting) return;
+    const needsRecipientCount = actions.filter(a => !resolveEmlRecipient(a)).length;
+    const draftedCount = actions.length - needsRecipientCount;
+    const recipientNote = needsRecipientCount > 0
+      ? `, ${needsRecipientCount} need${needsRecipientCount === 1 ? 's' : ''} a recipient filled in`
+      : '';
+    const tone = needsRecipientCount > 0 ? 'warning' : 'success';
+
+    if (shouldBundleEmlZip(actions.length, config.emailZipEnabled, config.emailZipThreshold)) {
+      const zipName = buildEmlZipFileName(todayStamp, actions.length);
+      downloadFile(buildEmlZip(actions), zipName, 'application/zip');
+      setDraftStatus({
+        tone,
+        text: `${actions.length} drafts bundled into ${zipName} — ${draftedCount} addressed${recipientNote}` +
+          '. Extract the ZIP (right-click → Extract All), then double-click each .eml file to open it in Outlook — nothing is sent automatically.',
+      });
+      return;
+    }
+
     const fileNames = buildUniqueEmlFileNames(actions);
-    let needsRecipientCount = 0;
     setIsDrafting(true);
     actions.forEach((action, i) => {
-      const to = action.ops_mailbox || action.to || '';
-      if (!to) needsRecipientCount++;
-      const content = buildEmlFile({ to, cc: action.cc, subject: action.subject, body: action.body });
+      const content = buildEmlForAction(action);
       window.setTimeout(() => downloadFile(content, fileNames[i], 'message/rfc822'), i * 120);
     });
     window.setTimeout(() => setIsDrafting(false), actions.length * 120 + 200);
-    const draftedCount = actions.length - needsRecipientCount;
     setDraftStatus({
-      tone: needsRecipientCount > 0 ? 'warning' : 'success',
-      text: `${actions.length} draft${actions.length === 1 ? '' : 's'} downloaded — ${draftedCount} addressed` +
-        (needsRecipientCount > 0 ? `, ${needsRecipientCount} need${needsRecipientCount === 1 ? 's' : ''} a recipient filled in` : '') +
+      tone,
+      text: `${actions.length} draft${actions.length === 1 ? '' : 's'} downloaded — ${draftedCount} addressed${recipientNote}` +
         '. Double-click each .eml file to open it in Outlook — nothing is sent automatically.',
     });
   };
@@ -424,7 +441,9 @@ export function ResultsView({
       defaultedLine +
       heldLine +
       unseenPunchLine +
-      '\n\nEach downloads as a .eml file — double-click one to open it in Outlook for review. No email will be sent automatically.'
+      (shouldBundleEmlZip(finalActions.length, config.emailZipEnabled, config.emailZipThreshold)
+        ? '\n\nThey download together as ONE .zip file — extract it, then double-click a .eml to open it in Outlook for review. No email will be sent automatically.'
+        : '\n\nEach downloads as a .eml file — double-click one to open it in Outlook for review. No email will be sent automatically.')
     );
     if (!ok) return;
     launchEmailDrafts(finalActions);
@@ -435,33 +454,29 @@ export function ResultsView({
   // Communication Rule that actually fired — §4.1 routed this case to OPS
   // specifically so the employee and their line manager would not receive it —
   // so that override now requires an explicit yes instead of happening
-  // silently behind the mail icon.
-  const handleRowDraft = (action: EmailActionItem) => {
-    if (action.communication_rule !== 'EMAIL_OPS') {
-      launchEmailDrafts([action]);
-      return;
-    }
+  // silently behind the mail icon. Returns null when the override is declined.
+  const resolveRowDraftAction = (action: EmailActionItem): EmailActionItem | null => {
+    if (action.communication_rule !== 'EMAIL_OPS') return action;
     const mailbox = findSectionMailbox(config.sectionMailboxMap, action.section, config.defaultOpsMailbox);
-    if (mailbox) {
-      launchEmailDrafts([{ ...action, ops_mailbox: mailbox }]);
-      return;
-    }
+    if (mailbox) return { ...action, ops_mailbox: mailbox };
     const ok = window.confirm(
       `This case's rule is EMAIL_OPS — it is meant to go to the OPS mailbox for Section "${action.section || '(none)'}", not to the employee.\n\n` +
       'No mailbox is configured for that Section and no default OPS mailbox is set. Drafting it here will address it to the EMPLOYEE and CC their line manager instead, which overrides the rule that fired.\n\n' +
       'Override and draft to the employee anyway?'
     );
-    if (!ok) return;
-    launchEmailDrafts([buildIndividualOverride(action, config.employeeManagerMap)]);
+    return ok ? buildIndividualOverride(action, config.employeeManagerMap) : null;
   };
 
-  // A row can now carry more than one EmailActionItem (one per fired action —
+  // A row can carry more than one EmailActionItem (one per fired action —
   // e.g. a Late+Cover finding AND a separate Absent finding on the same day).
-  // Draft each in turn, reusing handleRowDraft's own per-action EMAIL_OPS
-  // override confirmation — sequential, so a row with an EMAIL_OPS action
-  // alongside an NA one still asks before overriding just that one.
+  // Each is resolved in turn (so a row with an EMAIL_OPS action alongside an
+  // NA one still asks before overriding just that one), then all are launched
+  // as ONE batch — so they share the ZIP bundling and one status message.
   const handleRowDraftAll = (actions: EmailActionItem[]) => {
-    actions.forEach(a => handleRowDraft(a));
+    const resolved = actions
+      .map(resolveRowDraftAction)
+      .filter((a): a is EmailActionItem => a !== null);
+    launchEmailDrafts(resolved);
   };
 
   // Defect fix: output filenames were previously hardcoded with the sample

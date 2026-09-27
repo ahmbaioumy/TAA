@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { buildXlsxWorkbook, crc32, sanitizeSheetName } from './xlsxWriter';
+import { buildEmlForAction, buildEmlZip, buildEmlZipFileName, buildUniqueEmlFileNames, shouldBundleEmlZip } from './emlBuilder';
+import { DEFAULT_CONFIG, importConfigFromJson, normalizeEmailZipEnabled, normalizeEmailZipThreshold } from './configRegistry';
+import { EmailActionItem } from '../types/taa';
 
 // A minimal, INDEPENDENT zip central-directory reader — deliberately not
 // sharing any code with xlsxWriter.ts's writer, so a bug in the writer's own
@@ -115,5 +118,53 @@ assert.ok(sheet1Xml.includes('&amp;'), 'escaped &');
 assert.ok(sheet1Xml.includes('&lt;Co&gt;'), 'escaped < and >');
 assert.ok(sheet1Xml.includes('"Ltd" it\'s'), 'plain " and \' need no escaping inside <t>');
 assert.ok(sheet1Xml.includes('line two'), 'embedded newline content must survive into the cell text');
+
+// --- Bundled email drafts: one stored .zip of .eml files (emlBuilder.buildEmlZip) ---
+const emlAction: EmailActionItem = {
+  row_id: 'r1', base_row_id: 'r1', template_key: 'late_login_absence', emp_id: '4500001', name: 'Test User',
+  nominate_date: '06/09/2026', role_tier: 'OPS', category: 'Late Login', variance_minutes: 61,
+  taa_action: 'ABSENT_SEGMENT', communication_rule: 'EMAIL_STAFF_CC_MANAGER', extra_2_alias: 'test.user',
+  email_adr: 'test.user@example.test', resolved_username: 'test.user', login_id: '12345', section: 'TEST',
+  subject: 'Late login — 06/09/2026', body: 'Dear Test User,\nلقد تأخرت', to: 'test.user@thecontactcentre.ae',
+};
+const emlActions: EmailActionItem[] = [
+  emlAction,
+  { ...emlAction, row_id: 'r2', base_row_id: 'r2' }, // same file name as r1 -> must get a _2 suffix
+  { ...emlAction, row_id: 'r3', base_row_id: 'r3', template_key: 'ops_digest', section: 'Prestige', to: '', ops_mailbox: 'prestige@example.test' },
+];
+const emlZipEntries = readZip(buildEmlZip(emlActions));
+const expectedEmlNames = buildUniqueEmlFileNames(emlActions);
+assert.equal(emlZipEntries.length, 3, 'one .eml per action inside the zip');
+assert.deepEqual(emlZipEntries.map(e => e.name), expectedEmlNames, 'zip entries use the same unique names a separate download would');
+assert.equal(new Set(emlZipEntries.map(e => e.name)).size, 3, 'entry names must be unique');
+emlZipEntries.forEach((entry, i) => {
+  assert.ok(entry.name.endsWith('.eml'), `${entry.name} must be a .eml`);
+  assert.equal(crc32(entry.data), entry.storedCrc, `CRC-32 mismatch for ${entry.name}`);
+  const text = new TextDecoder().decode(entry.data);
+  assert.equal(text, buildEmlForAction(emlActions[i]), `${entry.name} must be byte-identical to the separate .eml download`);
+  assert.ok(text.includes('X-Unsent: 1'), `${entry.name} must still open as an unsent draft`);
+});
+assert.ok(new TextDecoder().decode(emlZipEntries[2].data).includes('To: prestige@example.test'), 'an OPS digest in the zip is addressed to its ops_mailbox');
+assert.equal(buildEmlZipFileName('27092026', 6), 'TAA_Email_Drafts_27092026_6.zip');
+
+// --- ZIP toggle + threshold (config.emailZipEnabled / emailZipThreshold) ---
+assert.equal(DEFAULT_CONFIG.emailZipEnabled, true, 'bundling ships ON');
+assert.equal(DEFAULT_CONFIG.emailZipThreshold, 2, 'the browser prompts from the 2nd download, so the default is 2');
+assert.equal(shouldBundleEmlZip(6, true, 2), true, '6 drafts, on, threshold 2 -> zip');
+assert.equal(shouldBundleEmlZip(2, true, 2), true, 'count == threshold -> zip');
+assert.equal(shouldBundleEmlZip(1, true, 2), false, 'below threshold -> separate .eml');
+assert.equal(shouldBundleEmlZip(6, false, 2), false, 'toggle OFF -> always separate .eml');
+assert.equal(shouldBundleEmlZip(0, true, 1), false, 'nothing to download -> no zip');
+assert.equal(normalizeEmailZipThreshold(undefined), 2);
+assert.equal(normalizeEmailZipThreshold('abc'), 2);
+assert.equal(normalizeEmailZipThreshold(0), 1);
+assert.equal(normalizeEmailZipThreshold(-3), 1);
+assert.equal(normalizeEmailZipThreshold(3.7), 3);
+assert.equal(normalizeEmailZipThreshold('5'), 5);
+assert.equal(normalizeEmailZipEnabled(undefined), true, 'older configs without the field get the default ON');
+assert.equal(normalizeEmailZipEnabled(false), false);
+const legacyImport = importConfigFromJson(JSON.stringify({ ...DEFAULT_CONFIG, emailZipEnabled: undefined, emailZipThreshold: undefined }));
+assert.equal(legacyImport.emailZipEnabled, true, 'a config exported before these fields existed imports with bundling ON');
+assert.equal(legacyImport.emailZipThreshold, 2);
 
 console.log('xlsxWriter tests passed.');

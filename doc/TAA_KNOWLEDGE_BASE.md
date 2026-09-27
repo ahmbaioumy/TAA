@@ -1568,6 +1568,23 @@ from the raw DUTY1 start/end (Cognos's own basis), so a Cognos row that also ign
 matches; one that doesn't is a real MISMATCH and holds. Pinned by `reg-192`–`reg-196` and
 `scheduleRecomputeBlocks.test.ts`.
 
+## 7t. Multi-draft `.eml` batches bundled into one `.zip` (2026-09-27)
+
+**Verified fact:** Chromium-based browsers (Chrome/Edge) show a "download multiple files — Allow?"
+prompt from the **2nd** automatic download a page fires; Bulk Draft's old N-separate-downloads
+path (staggered 120 ms) hit it on every multi-draft run, and operators read the prompt as
+suspicious. **Fix:** `config.emailZipEnabled` (default ON) + `config.emailZipThreshold` (default 2)
+— a batch at or above the threshold downloads as one `TAA_Email_Drafts_<DDMMYYYY>_<N>.zip` of the
+identical `.eml` files (`emlBuilder.buildEmlZip`, reusing the stored-method writer extracted from
+`xlsxWriter.ts` into `zipWriter.ts`). Verified in headless Chromium against the standalone
+`file://` build with the sample dataset: 15 drafts → exactly one download, `unzip -t` clean,
+15 entries each carrying `X-Unsent: 1`; toggle OFF or threshold 20 → 15 separate `.eml`
+downloads. **RAR rejected:** proprietary, no browser writer, not natively openable on Windows.
+**Also changed:** a row's "draft all" used to call the single-draft launcher once per action
+back-to-back — each launch fired its download at offset 0 (no stagger between them) and the
+status banner only described the last one. It now resolves all actions and launches one batch,
+so it shares the zip bundling and reports the whole batch.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):
