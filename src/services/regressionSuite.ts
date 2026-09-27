@@ -5659,8 +5659,9 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       && !row.details.generatedCorrections.some(c => c.Code === config.shiftUpdateOriginalCode && c.SegmentCode === 'SHIFT');
     const passed =
       row.holdReason !== 'PUBLIC_HOLIDAY_SHIFT_MISCODED'
-      && row.holdReason === 'ABSENT_MARKED_BUT_ATTENDED'
-      && row.TAA_ACTION === 'MANUAL_REVIEW_REQUIRED'
+      && row.holdReason !== 'ABSENT_MARKED_BUT_ATTENDED'
+      && row.TAA_VERDICT === 'ABSENCE_CONTRADICTED_BY_CMS'
+      && row.TAA_ACTION === 'NO_ACTION'
       && noOt2Pair;
 
     results.push({
@@ -5669,16 +5670,16 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       category: '§4.6f supersedes §4.6e for this shape (2026-09-18): must never undo an already-applied §4.6c Absent+OT correction',
       inputDescription: 'P/H-LV + SHIFT 09:00-17:00 (same shape as reg-117), plus an "ABSENT NS/NC" marker segment already present in the ASPECT export — the signature left behind by an earlier §4.6c correction having been uploaded back to ASPECT — and a full CMS punch pair covering the whole shift',
       cognosFlawedVerdict: 'Without either guard: identical to reg-117 -> auto-drafts a 10/11 pair converting the already-corrected SHIFT back to OT2, silently undoing the prior Absent-day fix on every re-run',
-      expectedVerdict: 'holdReason=ABSENT_MARKED_BUT_ATTENDED, action=MANUAL_REVIEW_REQUIRED (gate 4.6f: already marked absent, but CMS shows the day was fully worked); never PUBLIC_HOLIDAY_SHIFT_MISCODED; no SHIFT-to-OT2 pair drafted',
-      expectedAction: 'MANUAL_REVIEW_REQUIRED',
-      actualVerdict: `hold=${row.holdReason || 'none'}, noOt2Pair=${noOt2Pair}`,
+      expectedVerdict: 'ABSENCE_CONTRADICTED_BY_CMS / NO_ACTION (gate 4.6f: already marked absent, CMS shows attendance — day already actioned, never force-held); never PUBLIC_HOLIDAY_SHIFT_MISCODED; no SHIFT-to-OT2 pair drafted',
+      expectedAction: 'NO_ACTION',
+      actualVerdict: `${row.TAA_VERDICT}, hold=${row.holdReason || 'none'}, noOt2Pair=${noOt2Pair}`,
       actualAction: row.TAA_ACTION,
       passed,
       payrollImpact: 'Prevents a re-run of TAA against an already-corrected date from proposing to convert the corrected SHIFT segment back to OT2 (which would undo the prior §4.6c Absent+OT fix), and now also surfaces — instead of silently ignoring — the fact that a day tagged absent shows a full day of CMS attendance',
       calculationTrace: [
         'empSegs includes an ABSENT NS/NC segment -> existingAbsenceMarkerSegment found -> gate §4.6f fires before the leave/mixed-work Pass 3 check ever runs',
-        'CMS punches span the full 09:00-17:00 shift (>= leaveLoginThresholdMinutes) -> branch (b): ABSENCE_CONTRADICTED_BY_CMS / MANUAL_REVIEW_REQUIRED / holdReason=ABSENT_MARKED_BUT_ATTENDED',
-        'forcedHoldReason already set by gate 4.6f -> Pass 3\'s dayAlreadyHasAbsentMarker guard still forces isPublicHolidayShiftMiscodedDay=false, but its own MIXED_LEAVE_AND_WORK_SEGMENTS fallback never overwrites the more specific reason already set',
+        'CMS punches span the full 09:00-17:00 shift (>= leaveLoginThresholdMinutes) -> branch (b): ABSENCE_CONTRADICTED_BY_CMS / NO_ACTION, no forced hold (user decision 2026-09-27: day already actioned)',
+        'Pass 3\'s dayAlreadyHasAbsentMarker guard forces isPublicHolidayShiftMiscodedDay=false; any MIXED_LEAVE_AND_WORK_SEGMENTS fallback is a releasable soft hold',
         'No SHIFT-to-OT2 pair drafted either way — the re-run-undo-prevention invariant holds',
       ],
     });
@@ -5809,27 +5810,29 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config });
     const row = out.rows[0];
     const noCorrectionsGenerated = row.details.generatedCorrections.length === 0;
+    const noEmailDrafted = out.emailActions.every(e => e.communication_rule === 'NA');
     const passed = row.TAA_VERDICT === 'ABSENCE_CONTRADICTED_BY_CMS'
-      && row.TAA_ACTION === 'MANUAL_REVIEW_REQUIRED'
-      && row.holdReason === 'ABSENT_MARKED_BUT_ATTENDED'
-      && noCorrectionsGenerated;
+      && row.TAA_ACTION === 'NO_ACTION'
+      && !row.holdReason
+      && noCorrectionsGenerated
+      && noEmailDrafted;
 
     results.push({
       id: 'reg-130',
-      name: 'SHIFT + Pre-Existing ABSENT Marker, Full CMS Punch Pair -> Held for Manual Review, Never Auto-Reversed',
+      name: 'SHIFT + Pre-Existing ABSENT Marker, Full CMS Punch Pair -> No Action, Not Held, Never Auto-Reversed',
       category: '§4.6f Absence Already Recorded (2026-09-18) — the previously-invisible contradiction case',
       inputDescription: 'SHIFT 09:00-17:00 + a day-level "ABSENT" marker segment already present in the ASPECT export, but CMS shows a full 09:00-17:00 punch pair — the day was marked absent yet apparently attended',
       cognosFlawedVerdict: 'Before this fix: the day already carrying ABSENT is invisible to every gate once it also has a SHIFT segment — it is simply never re-examined, so nobody is ever told the recorded absence contradicts CMS',
-      expectedVerdict: 'ABSENCE_CONTRADICTED_BY_CMS / MANUAL_REVIEW_REQUIRED — held for a human with the source documents; never auto-reversed',
-      expectedAction: 'MANUAL_REVIEW_REQUIRED',
+      expectedVerdict: 'ABSENCE_CONTRADICTED_BY_CMS / NO_ACTION — day already actioned in ASPECT, not held, no correction, no email; never auto-reversed',
+      expectedAction: 'NO_ACTION',
       actualVerdict: `${row.TAA_VERDICT}, hold=${row.holdReason || 'none'}, corrections=${row.details.generatedCorrections.length}`,
       actualAction: row.TAA_ACTION,
       passed,
-      payrollImpact: 'Surfaces a previously-silent case where a recorded absence may be wrong and pay may be owed — without ever auto-correcting ASPECT to reverse it',
+      payrollImpact: 'The day is already actioned in ASPECT, so TAA takes no action and does not lock the row (user decision 2026-09-27); the CMS attendance stays visible via the distinct verdict, and ASPECT is never auto-corrected to reverse the absence',
       calculationTrace: [
         'empSegs includes an ABSENT segment -> existingAbsenceMarkerSegment found -> gate §4.6f fires',
-        'CMS punches span the full 09:00-17:00 shift (>= leaveLoginThresholdMinutes) -> branch (b): ABSENCE_CONTRADICTED_BY_CMS / MANUAL_REVIEW_REQUIRED / forcedHoldReason=ABSENT_MARKED_BUT_ATTENDED',
-        'No rowCorrections pushed — removing a recorded absence is a human decision, never automatic',
+        'CMS punches span the full 09:00-17:00 shift (>= leaveLoginThresholdMinutes) -> branch (b): ABSENCE_CONTRADICTED_BY_CMS / NO_ACTION, no hold',
+        'No rowCorrections pushed and no email — removing a recorded absence is never automatic',
       ],
     });
   }

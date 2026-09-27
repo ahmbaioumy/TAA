@@ -984,14 +984,18 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         totalPunchMinutes = Math.max(0, diffInMinutes(earliestLogin, latestLogout));
       }
       if (totalPunchMinutes >= config.leaveLoginThresholdMinutes) {
-        // CMS contradicts the recorded absence. Removing it would restore a day's
-        // pay — a human decision with the source documents, never an auto-write.
+        // CMS shows attendance on a day ASPECT already tags absent. User decision
+        // (2026-09-27): the day is already actioned in ASPECT, so there is nothing for
+        // TAA to do — NO_ACTION, never held. Previously a forced ABSENT_MARKED_BUT_ATTENDED
+        // hold, which no Hold Policy setting could release. TAA still never auto-reverses
+        // the recorded absence; the distinct verdict keeps the CMS attendance visible in
+        // the trace for anyone who wants to follow it up.
         verdict = 'ABSENCE_CONTRADICTED_BY_CMS';
-        action = 'MANUAL_REVIEW_REQUIRED';
-        resultCategory = 'COGNOS_DATA_GAP';
-        disagreeReason = 'ABSENT_MARKED_BUT_ATTENDED';
-        ruleFired = `ASPECT already tags this day "${existingAbsenceMarkerSegment.SEG_CODE}", but CMS shows ${totalPunchMinutes}m of attendance — a recorded absence is never auto-reversed`;
-        forcedHoldReason = 'ABSENT_MARKED_BUT_ATTENDED';
+        action = 'NO_ACTION';
+        resultCategory = 'NO_ACTION_REQUIRED';
+        disagreeReason = 'MATCH';
+        ruleFired = `ASPECT already tags this day "${existingAbsenceMarkerSegment.SEG_CODE}"; CMS shows ${totalPunchMinutes}m of attendance — day already actioned, no action taken (a recorded absence is never auto-reversed)`;
+        noActionCount++;
       } else {
         verdict = 'ABSENCE_ALREADY_RECORDED';
         action = 'NO_ACTION';

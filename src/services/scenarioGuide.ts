@@ -302,10 +302,10 @@ function buildAlreadyAbsentGroup(config: ConfigRegistry): ScenarioGroup {
     {
       id: 'already-absent-but-attended',
       caseText: `ASPECT already tags the day absent but CMS shows ${config.leaveLoginThresholdMinutes}+ minutes of attendance`,
-      resultText: ACTION_DESCRIPTIONS.MANUAL_REVIEW_REQUIRED,
-      action: 'MANUAL_REVIEW_REQUIRED',
+      resultText: 'Absence Contradicted by CMS — the day is already actioned in ASPECT, so no action is taken and the row is not held. The CMS attendance is noted in the trace.',
+      action: 'NO_ACTION',
       communication: 'NA',
-      note: 'Removing a recorded absence restores a day of pay, so it is always a human decision — TAA surfaces the contradiction and never auto-reverses it.',
+      note: 'TAA never auto-reverses a recorded absence (that restores a day of pay and needs the source documents) — the existing ASPECT tag stands and TAA takes no action.',
     },
   ];
   return {
@@ -556,8 +556,8 @@ export function simulateScenario(input: ScenarioSimInput, config: ConfigRegistry
     trace.push(`ASPECT already tags this day absent (${(config.existingAbsenceMarkerCodes || []).join(' / ')}) — the day is already actioned.`);
     trace.push(`CMS login span ${totalPunchMinutes}m vs the ${config.leaveLoginThresholdMinutes}m threshold.`);
     if (totalPunchMinutes >= config.leaveLoginThresholdMinutes) {
-      trace.push('At/over threshold — CMS contradicts the recorded absence. Held for a human; a recorded absence is never auto-reversed.');
-      return buildResult('ABSENCE_CONTRADICTED_BY_CMS', 'MANUAL_REVIEW_REQUIRED', 'NA', 'R_13', trace);
+      trace.push('At/over threshold — CMS shows attendance, but the day is already actioned in ASPECT. No action, not held; a recorded absence is never auto-reversed.');
+      return buildResult('ABSENCE_CONTRADICTED_BY_CMS', 'NO_ACTION', 'NA', 'R_13', trace);
     }
     trace.push('Under threshold — no duplicate absence segment is written and no notice is drafted.');
     return buildResult('ABSENCE_ALREADY_RECORDED', 'NO_ACTION', 'NA', 'R_13', trace);
