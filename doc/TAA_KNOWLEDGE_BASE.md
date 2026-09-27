@@ -1587,6 +1587,39 @@ back-to-back — each launch fired its download at offset 0 (no stagger between 
 status banner only described the last one. It now resolves all actions and launches one batch,
 so it shares the zip bundling and reports the whole batch.
 
+## 7u. Multi-day CMS session rejected the whole CMS upload (2026-09-27)
+
+**Defect (user-reported, 26/09 run):** uploading the 25th/26th/27th CMS exports failed with
+`Logout Time (Full) is not on the row's date or the next day.` Some agents logged in on the 24th
+and did not log out until the 27th. `validateCmsFile` (`parsers.ts`) treated that as a corrupt row, and
+`UploadZone.handleCmsFilesUpload` is fail-closed per batch, so **one row dropped all three files**.
+The check dated from the original validator (folded into the "Logout Time conflicts with Logout
+Time (Full)" test) and was split out under its own message in `c17d76a`. It assumed a CMS row
+closes on its own date or the next day (a night shift).
+
+**Why not just delete the check:** `punchAttribution.ts` gives a punch to ONE window, the nearest
+one by its login or logout instant. So a 24th→27th punch either leaves the 25th/26th shifts with no
+punch (false Absent), or makes whichever day won it look Present with a ~72 h span.
+
+**Fix:**
+- `logoutSpansMultipleDays` (shared by validator and parser): logout ≥ row date + 2 days. Such a
+  row gives a warning, not a reject, and the punch is flagged `spansMultipleDays`.
+- The upload shows one non-blocking notice listing the rows.
+- New forced hold `MULTI_DAY_CMS_SESSION` (engine gate right after `STILL_CLOCKED_IN`). It fires
+  when (a) such a punch is attributed to the row, or (b) the row's real shift window overlaps the
+  session for the same Login ID. It is in `FORCED_HOLD_REASONS`, so the Hold Policy tab lists it as
+  Locked, and `sanitizeHoldPolicy` strips any released id for it on config import.
+- No new config key, so config export/import is unchanged.
+- All other CMS rejects are unchanged: layout, formats, contradictory `0`, logout before the row
+  date or login, and logout-column minute conflict.
+
+**Tests:**
+- `auditFixes.test.ts`: acceptance, the warning, not-flagged same/next-day cases, the 00:00
+  boundary, and the still-strict rejects.
+- `reg-197`/`reg-198`: all three covered days held, with a control agent in the same run
+  unaffected. Mutation-checked: disabling the gate fails `reg-197`.
+- `holdPolicy.test.ts` §12 and the `configExportImport.test.ts` tampered-id case.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

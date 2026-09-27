@@ -10126,5 +10126,69 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     }
   }
 
+  // reg-197 / reg-198: multi-day CMS session (2026-09-27). Login 24/09 08:00, logout 27/09 10:00
+  // (the agent never logged out). The upload used to reject the whole CMS batch; now the punch is
+  // loaded, flagged spansMultipleDays, and EVERY shift it runs through (24th, 25th, 26th) is
+  // force-held MULTI_DAY_CMS_SESSION — never auto-Absent (the days attribution didn't give it to)
+  // and never auto-Present (the day that won it). A second agent with normal punches on the same
+  // three days, in the same run, reconciles exactly as before.
+  {
+    const days = ['24/09/2026', '25/09/2026', '26/09/2026'];
+    const cognosFor = (pf: string, loginId: string, day: string): CognosRecord => {
+      const [d, m, y] = day.split('/');
+      return {
+        'SIGN IN DATE': `${y}-${m}-${d} 00:00:00`, SECTION: 'ECS', 'PF NO': pf, NAME: `Agent ${pf}`, 'LOGIN ID': loginId,
+        DUTY1: '08:00 - 16:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '08:00',
+        'SIGIN IN': '08:00', 'SIGIN OUT': '16:00', 'LATE START': '0', 'LEFT EARLY': '0', 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+      };
+    };
+    const shiftSeg = (pf: string, day: string): AspectSegment => ({
+      EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 08:00:00`, STOP_MOMENT: `${day} 16:00:00`, DURATION: 480,
+    });
+    const cognosRecords = [...days.map(d => cognosFor('8197001', '20197', d)), ...days.map(d => cognosFor('8197002', '20198', d))];
+    const segs = [...days.map(d => shiftSeg('8197001', d)), ...days.map(d => shiftSeg('8197002', d))];
+    const identities: AspectIdentity[] = [
+      { EMP_ID: '8197001', EMP_LAST_NAME: 'Multi Day', EMP_SORT_NAME: 'MULTI DAY', EMP_EXTRA_2: 'mday' },
+      { EMP_ID: '8197002', EMP_LAST_NAME: 'Control Agent', EMP_SORT_NAME: 'CONTROL AGENT', EMP_EXTRA_2: 'cagent' },
+    ];
+    const punches: CMSPunch[] = [
+      { Date: '24/09/2026', LoginID: '20197', LoginDateTime: makeDt('24/09/2026', '08:00:12'), LogoutDateTime: makeDt('27/09/2026', '10:00:40'), spansMultipleDays: true },
+      ...days.flatMap(d => [swipeAt('20198', makeDt(d, '08:00:00')), swipeAt('20198', makeDt(d, '16:00:00'))]),
+      // Export coverage runs through the 27th, as with the real 25/26/27 upload.
+      swipeAt('20199', makeDt('27/09/2026', '18:00:00')),
+    ];
+    const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords, aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config });
+    const multiRows = out.rows.filter(r => r.originalCognos['PF NO'] === '8197001');
+    const controlRows = out.rows.filter(r => r.originalCognos['PF NO'] === '8197002');
+    const summary = (r: ReconciliationRow) => `${r.originalCognos['SIGN IN DATE'].slice(0, 10)} ${r.TAA_VERDICT}/${r.holdReason ?? 'no hold'}`;
+    const multiPassed = multiRows.length === 3 && multiRows.every(r =>
+      r.holdReason === 'MULTI_DAY_CMS_SESSION' && r.TAA_VERDICT === 'MULTI_DAY_CMS_SESSION'
+      && r.TAA_ACTION === 'MANUAL_REVIEW_REQUIRED' && !r.includeInOutput);
+    results.push({
+      id: 'reg-197', name: 'Multi-Day CMS Session (24th→27th) Holds Every Shift It Covers — Never Absent, Never Present',
+      category: 'CMS Upload Robustness',
+      inputDescription: 'SHIFT 08:00-16:00 on 24/25/26 Sep; one CMS row: login 24/09 08:00, logout 27/09 10:00',
+      cognosFlawedVerdict: 'Upload rejected the whole CMS batch ("not on the row\'s date or the next day")',
+      expectedVerdict: 'All three days: MULTI_DAY_CMS_SESSION forced hold', expectedAction: 'MANUAL_REVIEW_REQUIRED',
+      actualVerdict: multiRows.map(summary).join('; '), actualAction: multiRows.map(r => r.TAA_ACTION).join(', '),
+      passed: multiPassed,
+      payrollImpact: 'One un-logged-out agent no longer blocks the CMS upload for everyone, and cannot be auto-marked Absent or Present on the days the session covers',
+      calculationTrace: multiRows.map(r => r.details.ruleFired || ''),
+    });
+    const controlPassed = controlRows.length === 3 && controlRows.every(r =>
+      r.TAA_VERDICT === 'PRESENT' && r.TAA_ACTION === 'NO_ACTION' && r.holdReason !== 'MULTI_DAY_CMS_SESSION');
+    results.push({
+      id: 'reg-198', name: 'Guard: Other Agents in the Same Multi-Day Upload Reconcile Normally',
+      category: 'CMS Upload Robustness',
+      inputDescription: 'Same run as reg-197; second agent with 08:00 / 16:00 punches on 24/25/26 Sep',
+      cognosFlawedVerdict: 'n/a',
+      expectedVerdict: 'PRESENT on all three days, no multi-day hold', expectedAction: 'NO_ACTION',
+      actualVerdict: controlRows.map(summary).join('; '), actualAction: controlRows.map(r => r.TAA_ACTION).join(', '),
+      passed: controlPassed,
+      payrollImpact: 'The multi-day hold is scoped to the one login whose session spans days',
+      calculationTrace: controlRows.map(summary),
+    });
+  }
+
   return results;
 }

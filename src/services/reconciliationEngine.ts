@@ -568,6 +568,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
   }
 
   const attribution: AttributionResult = attributePunches(windows, punchesByLoginId, config);
+  const windowByKey = new Map<string, ScheduledWindow>(windows.map(w => [w.key, w]));
 
   // Sequential cover placement tracker for this run (§4.11 Step 3).
   const placedCoversThisRun = new Map<string, { start: Date; end: Date; duration: number }[]>();
@@ -630,6 +631,22 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       (p): p is typeof p & { LogoutDateTime: Date } => p.LogoutDateTime !== null
     );
     const hasOpenPunchEvidence = closedMatchingPunches.length < matchingPunches.length;
+    // A CMS session whose logout lands two or more days after its row's date (login 24th,
+    // logout 27th — see parsers.ts logoutSpansMultipleDays) proves neither attendance nor
+    // absence for the shifts it runs through. Attribution hands it to ONE window only, so the
+    // other shifts it covers would otherwise see no punch (false Absent) or, if they won it, a
+    // days-long span (false Present). Held when (a) such a session was attributed here, or
+    // (b) this row's real (non-synthetic) shift window overlaps the session. Leave-day
+    // synthetic windows use (a) only, so an earlier session is never charged to a leave day.
+    const ownWindow = windowByKey.get(windowKey);
+    const multiDayPunch: CMSPunch | undefined =
+      matchingPunches.find(p => p.spansMultipleDays)
+      ?? (ownWindow && !ownWindow.isSynthetic
+        ? (punchesByLoginId.get(loginId) || []).find(p =>
+          p.spansMultipleDays && p.LogoutDateTime !== null
+          && p.LoginDateTime.getTime() < ownWindow.attributionEnd.getTime()
+          && p.LogoutDateTime.getTime() > ownWindow.rawStart.getTime())
+        : undefined);
 
     let actualFirstLoginDt: Date | null = null;
     let actualLastLogoutDt: Date | null = null;
@@ -876,6 +893,16 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       disagreeReason = 'STILL_CLOCKED_IN';
       ruleFired = 'CMS shows this login still clocked in (no logout recorded) as of the export — attendance cannot be computed until a logout is available; never auto-resolved';
       forcedHoldReason = 'STILL_CLOCKED_IN';
+    } else if (multiDayPunch) {
+      // --- GATE: multi-day CMS session — see multiDayPunch above. Same standing as
+      // STILL_CLOCKED_IN: the real attendance for this shift is unknowable from CMS, so no
+      // attendance rule below may run against it. Never auto-Present, never auto-Absent.
+      verdict = 'MULTI_DAY_CMS_SESSION';
+      action = 'MANUAL_REVIEW_REQUIRED';
+      resultCategory = 'COGNOS_DATA_GAP';
+      disagreeReason = 'MULTI_DAY_CMS_SESSION';
+      ruleFired = `CMS session for this login runs from ${formatDateDDMMYYYY(multiDayPunch.LoginDateTime)} ${formatTimeHHMM(multiDayPunch.LoginDateTime)} to ${formatDateDDMMYYYY(multiDayPunch.LogoutDateTime!)} ${formatTimeHHMM(multiDayPunch.LogoutDateTime!)} (spans multiple days, never logged out) — attendance for this shift cannot be judged from CMS; needs manual verification`;
+      forcedHoldReason = 'MULTI_DAY_CMS_SESSION';
     } else if (contestedThinEvidence) {
       // --- GATE: contested punch attribution left this day short of evidence.
       // Sits above every verdict gate for the same reason MISSING_CMS_JOIN_KEY does: with

@@ -288,6 +288,7 @@ const tamperedJson = (() => {
     released: [
       'OPS|MIXED_LEAVE_AND_WORK_SEGMENTS|ABSENT', // valid, kept
       'OPS|MISSING_CMS_JOIN_KEY|NO_ACTION', // locked (forced) reason — must be stripped
+      'FLEX|MULTI_DAY_CMS_SESSION|ABSENT', // locked (forced) reason, added 2026-09-27 — must be stripped
       'FLEX|MANUAL_REVIEW_REQUIRED|NO_ACTION', // MANUAL_REVIEW_REQUIRED — must be stripped
       'not-a-valid-cell-id', // malformed — must be stripped
     ],
