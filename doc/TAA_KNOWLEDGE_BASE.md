@@ -586,8 +586,10 @@ permission is a plain file download.
   this change too.
 
 **Filename scheme, per explicit user request** (so files are identifiable at a glance in
-Downloads, unlike the old opaque `request_id`-suffixed names): `Action_PFxxxx_DDMMYYYY.eml`,
-e.g. `LateLoginAbsence_PF8768787_08102026.eml`; a pooled OPS digest has no single employee, so it
+Downloads, unlike the old opaque `request_id`-suffixed names): `Action_PFxxxx_StaffName_username_SECTION_DDMMYYYY.eml`,
+e.g. `LateLoginAbsence_PF8768787_Ahmed-Ali_aali_COLL-RET_08102026.eml` (extended 2026-09-27, per
+explicit user request, so the full case is visible from the name across hundreds of drafts; a
+blank name/username/section is omitted, never `UNKNOWN`; staff name capped at 40 chars); a pooled OPS digest has no single employee, so it
 uses the Section instead: `OpsDigest_COLL-RET_27082026.eml` (sanitized — `&`/spaces collapse to
 `-`). Collisions within one batch get a numeric suffix.
 

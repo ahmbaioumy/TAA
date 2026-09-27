@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { buildXlsxWorkbook, crc32, sanitizeSheetName } from './xlsxWriter';
-import { buildEmlForAction, buildEmlZip, buildEmlZipFileName, buildUniqueEmlFileNames, shouldBundleEmlZip } from './emlBuilder';
+import { buildEmlFileName, buildEmlForAction, buildEmlZip, buildEmlZipFileName, buildUniqueEmlFileNames, shouldBundleEmlZip } from './emlBuilder';
 import { DEFAULT_CONFIG, importConfigFromJson, normalizeEmailZipEnabled, normalizeEmailZipThreshold } from './configRegistry';
 import { EmailActionItem } from '../types/taa';
 
@@ -146,6 +146,17 @@ emlZipEntries.forEach((entry, i) => {
 });
 assert.ok(new TextDecoder().decode(emlZipEntries[2].data).includes('To: prestige@example.test'), 'an OPS digest in the zip is addressed to its ops_mailbox');
 assert.equal(buildEmlZipFileName('27092026', 6), 'TAA_Email_Drafts_27092026_6.zip');
+
+// --- Draft file names carry the full case: action, PF, staff name, username, section, date ---
+assert.equal(buildEmlFileName(emlAction), 'LateLoginAbsence_PF4500001_Test-User_test-user_TEST_06092026.eml', 'all fields present -> full case in the name');
+assert.equal(expectedEmlNames[1], 'LateLoginAbsence_PF4500001_Test-User_test-user_TEST_06092026_2.eml', 'a repeat in one batch gets a _2 suffix');
+assert.equal(expectedEmlNames[2], 'OpsDigest_Prestige_06092026.eml', 'an OPS digest keeps Action_SECTION_DATE');
+assert.equal(buildEmlFileName({ ...emlAction, resolved_username: '', section: '' }), 'LateLoginAbsence_PF4500001_Test-User_06092026.eml', 'blank username/section are omitted, never UNKNOWN');
+assert.equal(buildEmlFileName({ ...emlAction, name: '  ', resolved_username: '', section: '' }), 'LateLoginAbsence_PF4500001_06092026.eml', 'no optional parts -> the original short name');
+assert.equal(buildEmlFileName({ ...emlAction, name: "Ahmed Al-Ali / O'Neil", section: 'COLL & RET' }), 'LateLoginAbsence_PF4500001_Ahmed-Al-Ali-O-Neil_test-user_COLL-RET_06092026.eml', 'special characters are sanitized');
+const longNamePart = buildEmlFileName({ ...emlAction, name: 'Mohammed Abdulrahman Abdullah Khalifa Al Mansoori Junior' }).split('_')[2];
+assert.ok(longNamePart.length <= 40 && !longNamePart.endsWith('-'), `a long staff name is capped at 40 chars (got "${longNamePart}")`);
+assert.ok(!buildEmlFileName({ ...emlAction, section: '' }).includes('__'), 'an omitted part never leaves a double separator');
 
 // --- ZIP toggle + threshold (config.emailZipEnabled / emailZipThreshold) ---
 assert.equal(DEFAULT_CONFIG.emailZipEnabled, true, 'bundling ships ON');
