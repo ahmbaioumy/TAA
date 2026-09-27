@@ -2640,8 +2640,9 @@ function eligibleRowIdSet(rows: ReconciliationRow[] | undefined): ReadonlySet<st
 export function generateEmailActionsJson(emailActions: EmailActionItem[], rows: ReconciliationRow[] | undefined, config: ConfigRegistry): string {
   const { eligible } = computeEmailStatusByRowId(
     emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates,
+    undefined, config.defaultOpsMailbox,
   );
-  const { finalActions } = planEmailDraftActions(eligible, config.sectionMailboxMap, config.emailTemplates);
+  const { finalActions } = planEmailDraftActions(eligible, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox);
   return JSON.stringify(finalActions, null, 2);
 }
 
@@ -4206,7 +4207,7 @@ export function generateAnnotatedCognosFile(
     if (!existing || existing === 'NA') communicationByRowId.set(base, a.communication_rule);
   });
   const emailStatusByRowId = emailActions && config
-    ? computeEmailStatusByRowId(emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates).statusByBaseRowId
+    ? computeEmailStatusByRowId(emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates, undefined, config.defaultOpsMailbox).statusByBaseRowId
     : null;
 
   const escapeCell = (val: any): string => {

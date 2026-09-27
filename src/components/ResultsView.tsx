@@ -333,13 +333,14 @@ export function ResultsView({
   );
   // Bulk drafting plan: staff/manager cases always stay individual;
   // EMAIL_OPS cases pool by Section into one digest email per mapped mailbox;
-  // EMAIL_OPS cases in an unmapped Section are HELD — reported below, not
-  // drafted, and never re-routed to the employee. The single-row "draft this
+  // EMAIL_OPS cases in an unmapped Section go to the default OPS mailbox
+  // (config.defaultOpsMailbox) when one is set; otherwise they are HELD —
+  // reported below, not drafted, and never re-routed to the employee. The single-row "draft this
   // one" icon can still override an individual case, but only behind an
   // explicit confirmation (see handleRowDraft).
   const bulkDraftPlan = useMemo(
-    () => planEmailDraftActions(eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates),
-    [eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates]
+    () => planEmailDraftActions(eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox),
+    [eligibleDraftActions, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox]
   );
 
   const getDraftDisabledReason = (row: ReconciliationRow, action?: EmailActionItem): string => {
@@ -400,12 +401,16 @@ export function ResultsView({
   };
 
   const handleBulkDraft = () => {
-    const { finalActions, staffActions, held, heldSections, pooled } = bulkDraftPlan;
+    const { finalActions, staffActions, held, heldSections, pooled, defaulted, defaultedSections } = bulkDraftPlan;
     if (finalActions.length === 0 || isDrafting) return;
     const coveredCases = eligibleDraftActions.length - held.length;
     const heldLine = held.length > 0
       ? `\n\nHELD, NOT DRAFTED: ${held.length} OPS case(s) in Section(s) [${heldSections.join(', ')}] — no OPS mailbox is configured for them. ` +
         'They are not being sent to the employee. Add the mailbox in the Email Config wizard and run Bulk Draft again.'
+      : '';
+    const defaultedLine = defaulted.length > 0
+      ? `\n\nDEFAULT OPS MAILBOX: ${defaulted.length} OPS case(s) in Section(s) [${defaultedSections.join(', ')}] have no Section mailbox configured — ` +
+        `they are drafted to the default OPS mailbox (${config.defaultOpsMailbox.trim()}).`
       : '';
     // HELD_UNSEEN_PUNCH (emailDrafts.ts) — REASON-flagged rows (unseenPunchAudit.ts) never
     // reach eligibleDraftActions at all (filtered out above), so they're reported separately
@@ -416,6 +421,7 @@ export function ResultsView({
       : '';
     const ok = window.confirm(
       `Download ${finalActions.length} draft(s): ${staffActions.length} individual + ${pooled.length} section group email(s) covering ${coveredCases} case(s).` +
+      defaultedLine +
       heldLine +
       unseenPunchLine +
       '\n\nEach downloads as a .eml file — double-click one to open it in Outlook for review. No email will be sent automatically.'
@@ -425,7 +431,7 @@ export function ResultsView({
   };
 
   // Single-row draft. An EMAIL_OPS row goes to its Section mailbox when one is
-  // configured. When none is, drafting it individually means overriding the
+  // configured, else to the default OPS mailbox when that is set. When neither is, drafting it individually means overriding the
   // Communication Rule that actually fired — §4.1 routed this case to OPS
   // specifically so the employee and their line manager would not receive it —
   // so that override now requires an explicit yes instead of happening
@@ -435,14 +441,14 @@ export function ResultsView({
       launchEmailDrafts([action]);
       return;
     }
-    const mailbox = findSectionMailbox(config.sectionMailboxMap, action.section);
+    const mailbox = findSectionMailbox(config.sectionMailboxMap, action.section, config.defaultOpsMailbox);
     if (mailbox) {
       launchEmailDrafts([{ ...action, ops_mailbox: mailbox }]);
       return;
     }
     const ok = window.confirm(
       `This case's rule is EMAIL_OPS — it is meant to go to the OPS mailbox for Section "${action.section || '(none)'}", not to the employee.\n\n` +
-      'No mailbox is configured for that Section. Drafting it here will address it to the EMPLOYEE and CC their line manager instead, which overrides the rule that fired.\n\n' +
+      'No mailbox is configured for that Section and no default OPS mailbox is set. Drafting it here will address it to the EMPLOYEE and CC their line manager instead, which overrides the rule that fired.\n\n' +
       'Override and draft to the employee anyway?'
     );
     if (!ok) return;
@@ -717,11 +723,19 @@ export function ResultsView({
             {draftStatus.text}
           </span>
         )}
+        {bulkDraftPlan.defaulted.length > 0 && (
+          <span className="max-w-xl flex items-start gap-1.5 text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>
+              <strong>{bulkDraftPlan.defaulted.length} OPS case(s) will go to the default OPS mailbox ({config.defaultOpsMailbox.trim()}).</strong> Section(s) [{bulkDraftPlan.defaultedSections.join(', ')}] have no Section mailbox configured — add one in the Email Config wizard to route them directly.
+            </span>
+          </span>
+        )}
         {bulkDraftPlan.held.length > 0 && (
           <span className="max-w-xl flex items-start gap-1.5 text-[11px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             <span>
-              <strong>{bulkDraftPlan.held.length} OPS case(s) will not be drafted.</strong> Section(s) [{bulkDraftPlan.heldSections.join(', ')}] have no OPS mailbox configured. These are held rather than sent to the employee — add the mailbox in the Email Config wizard, then run Bulk Draft again.
+              <strong>{bulkDraftPlan.held.length} OPS case(s) will not be drafted.</strong> Section(s) [{bulkDraftPlan.heldSections.join(', ')}] have no OPS mailbox configured and no default OPS mailbox is set. These are held rather than sent to the employee — add a Section mailbox or a default OPS mailbox in the Email Config wizard, then run Bulk Draft again.
             </span>
           </span>
         )}
@@ -967,7 +981,7 @@ export function ResultsView({
                               emailActionsForRow.length > 1
                                 ? `${emailActionsForRow.length} actions fired on this row — download an Outlook draft (.eml) for each`
                                 : emailAction.communication_rule === 'EMAIL_OPS'
-                                ? `Download an Outlook draft (.eml) to the OPS mailbox for Section "${emailAction.section || '(none)'}"`
+                                ? `Download an Outlook draft (.eml) to ${findSectionMailbox(config.sectionMailboxMap, emailAction.section, config.defaultOpsMailbox) || 'the OPS mailbox'} (Section "${emailAction.section || '(none)'}")`
                                 : emailAction.communication_rule === 'NA'
                                 ? 'Not required by policy — download an ad-hoc case notice (.eml) with the full row detail'
                                 : 'Download this case as an Outlook draft (.eml)'

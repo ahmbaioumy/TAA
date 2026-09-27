@@ -673,6 +673,12 @@ export interface ConfigRegistry {
   // emailDrafts.ts).
   sectionMailboxMap: SectionMailboxRule[];
 
+  // Fallback OPS mailbox for EMAIL_OPS cases whose Section has no row in
+  // sectionMailboxMap. Those cases are still pooled per Section+date, but the
+  // digest is addressed here instead of being held — still an OPS mailbox,
+  // never the employee. Blank = no fallback: unmapped Sections are HELD.
+  defaultOpsMailbox: string;
+
   // Optional employee -> manager mailbox map (§4.7 CC), uploaded via CSV in
   // the Config Registry / Email Config Wizard. No entry for an employee simply
   // means the draft opens with no CC — never an error, never a block.
@@ -941,6 +947,10 @@ export interface EmailActionItem {
   // mailbox, which is what the .eml builder addresses the draft to instead
   // of `to` for these items.
   ops_mailbox?: string;
+  // True when ops_mailbox is the config's defaultOpsMailbox fallback rather
+  // than a Section-specific mapping (the Section had no row in
+  // sectionMailboxMap).
+  ops_mailbox_is_default?: boolean;
 }
 
 export interface VerificationFailedCheck {

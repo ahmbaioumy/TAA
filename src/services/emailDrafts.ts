@@ -439,6 +439,12 @@ export function findManagerEmail(
 // fails toward silence instead of toward disclosure; the held cases are
 // reported by count and Section so the gap is fixed in config, not papered
 // over at draft time.
+//
+// defaultOpsMailbox (config) is the catch-all for that gap: when set, an
+// unmapped Section's cases are still pooled into their Section+date digest,
+// but addressed to the default OPS mailbox (flagged ops_mailbox_is_default and
+// noted in the body) instead of being held. It is still an OPS mailbox, so the
+// routing decision above is preserved. Only when it is blank are cases held.
 
 const OPS_DIGEST_TABLE_COLUMNS = ['Name', 'Emp ID', 'Date', 'Finding', 'Action', 'Var(min)', 'Notes'] as const;
 
@@ -547,19 +553,26 @@ export function buildSectionMailboxLookup(sectionMailboxMap: SectionMailboxRule[
   return mailboxBySection;
 }
 
+// Mapped Section mailbox first; otherwise the configured default OPS mailbox
+// (when non-blank); otherwise undefined (the case is held).
 export function findSectionMailbox(
   sectionMailboxMap: SectionMailboxRule[],
   section: string | undefined,
+  defaultOpsMailbox?: string,
 ): string | undefined {
-  return buildSectionMailboxLookup(sectionMailboxMap).get((section || '').trim().toUpperCase());
+  return buildSectionMailboxLookup(sectionMailboxMap).get((section || '').trim().toUpperCase())
+    || (defaultOpsMailbox || '').trim()
+    || undefined;
 }
 
 export function poolEmailOpsActionsBySection(
   actions: EmailActionItem[],
   sectionMailboxMap: SectionMailboxRule[],
   emailTemplates: EmailTemplateRegistry,
-): { pooled: EmailActionItem[]; held: EmailActionItem[] } {
+  defaultOpsMailbox = '',
+): { pooled: EmailActionItem[]; held: EmailActionItem[]; defaulted: EmailActionItem[] } {
   const mailboxBySection = buildSectionMailboxLookup(sectionMailboxMap);
+  const fallbackMailbox = defaultOpsMailbox.trim();
 
   const groups = new Map<string, EmailActionItem[]>();
   actions
@@ -573,10 +586,13 @@ export function poolEmailOpsActionsBySection(
 
   const pooled: EmailActionItem[] = [];
   const held: EmailActionItem[] = [];
+  const defaulted: EmailActionItem[] = [];
 
   groups.forEach((groupActions, groupKey) => {
     const [sectionKey, dateKey] = groupKey.split('||');
-    const mailbox = mailboxBySection.get(sectionKey);
+    const sectionMailbox = mailboxBySection.get(sectionKey);
+    const mailbox = sectionMailbox || fallbackMailbox;
+    const isDefault = !sectionMailbox && !!fallbackMailbox;
     if (!mailbox) {
       // Held unchanged — communication_rule stays EMAIL_OPS so nothing
       // downstream can mistake these for cases that were cleared to go to the
@@ -610,15 +626,22 @@ export function poolEmailOpsActionsBySection(
       body: '',
       to: '',
       ops_mailbox: mailbox,
+      ...(isDefault ? { ops_mailbox_is_default: true } : {}),
     };
-    pooled.push(applyEmailTemplate(digestBase, emailTemplates, {
+    const digest = applyEmailTemplate(digestBase, emailTemplates, {
       section: sectionLabel,
       count: String(groupActions.length),
       case_table: caseTable,
-    }));
+    });
+    if (isDefault) {
+      groupActions.forEach(a => defaulted.push(a));
+      digest.body += `\n\nNote: Section "${sectionLabel || '(none)'}" has no OPS mailbox configured, so this digest was addressed to the default OPS mailbox. ` +
+        'Add a Section mapping in the Email Config wizard to route it directly.';
+    }
+    pooled.push(digest);
   });
 
-  return { pooled, held };
+  return { pooled, held, defaulted };
 }
 
 // Single source of truth for turning raw per-row EmailActionItems into the
@@ -631,22 +654,28 @@ export function planEmailDraftActions(
   actions: EmailActionItem[],
   sectionMailboxMap: SectionMailboxRule[],
   emailTemplates: EmailTemplateRegistry,
+  defaultOpsMailbox = '',
 ): {
   staffActions: EmailActionItem[];
   pooled: EmailActionItem[];
   held: EmailActionItem[];
   heldSections: string[];
+  defaulted: EmailActionItem[];
+  defaultedSections: string[];
   finalActions: EmailActionItem[];
 } {
   const staffActions = actions.filter(a => a.communication_rule === 'EMAIL_STAFF_CC_MANAGER');
   const opsActions = actions.filter(a => a.communication_rule === 'EMAIL_OPS');
-  const { pooled, held } = poolEmailOpsActionsBySection(opsActions, sectionMailboxMap, emailTemplates);
+  const { pooled, held, defaulted } = poolEmailOpsActionsBySection(opsActions, sectionMailboxMap, emailTemplates, defaultOpsMailbox);
   const heldSections = Array.from(new Set(held.map(a => a.section || '(none)')));
+  const defaultedSections = Array.from(new Set(defaulted.map(a => a.section || '(none)')));
   return {
     staffActions,
     pooled,
     held,
     heldSections,
+    defaulted,
+    defaultedSections,
     finalActions: [...staffActions, ...pooled],
   };
 }
@@ -670,6 +699,9 @@ export type EmailStatus =
   | 'NOT_REQUIRED'
   | 'DRAFTED_INDIVIDUAL'
   | 'DRAFTED_OPS_DIGEST'
+  // Pooled into an OPS digest addressed to config.defaultOpsMailbox because the
+  // case's Section has no mapping in sectionMailboxMap.
+  | 'DRAFTED_OPS_DEFAULT_MAILBOX'
   | 'HELD_NO_OPS_MAILBOX'
   // Unseen-punch audit (src/services/unseenPunchAudit.ts) REASON flag: the ASPECT row stays in
   // output, but a punch outside the search window may change the reason shown to the employee
@@ -696,6 +728,7 @@ export function computeEmailStatusByRowId(
   // the search window may change the reason shown. Optional and additive: omitting it leaves
   // every existing caller's behaviour unchanged.
   unseenPunchHeldRowIds?: ReadonlySet<string>,
+  defaultOpsMailbox = '',
 ): { statusByRowId: Map<string, EmailStatus>; statusByBaseRowId: Map<string, EmailStatus>; eligible: EmailActionItem[] } {
   const statusByRowId = new Map<string, EmailStatus>();
 
@@ -717,9 +750,10 @@ export function computeEmailStatusByRowId(
     }
   });
 
-  const plan = planEmailDraftActions(eligible, sectionMailboxMap, emailTemplates);
+  const plan = planEmailDraftActions(eligible, sectionMailboxMap, emailTemplates, defaultOpsMailbox);
   plan.staffActions.forEach(a => statusByRowId.set(a.row_id, 'DRAFTED_INDIVIDUAL'));
   plan.held.forEach(a => statusByRowId.set(a.row_id, 'HELD_NO_OPS_MAILBOX'));
+  plan.defaulted.forEach(a => statusByRowId.set(a.row_id, 'DRAFTED_OPS_DEFAULT_MAILBOX'));
   // Pooled digests are synthesized items with their own row_id, so the
   // contributing cases are credited from the pre-pool eligible set instead.
   eligible
@@ -735,7 +769,7 @@ export function computeEmailStatusByRowId(
   // Walks the ACTIONS (not the status map's keys) so each status is attributed
   // via that action's own base_row_id — the map's keys are row_ids, which are
   // not safely parseable back to a row.
-  const STATUS_PRIORITY: EmailStatus[] = ['EXCLUDED_FROM_OUTPUT', 'HELD_UNSEEN_PUNCH', 'HELD_NO_OPS_MAILBOX', 'DRAFTED_OPS_DIGEST', 'DRAFTED_INDIVIDUAL', 'NOT_REQUIRED'];
+  const STATUS_PRIORITY: EmailStatus[] = ['EXCLUDED_FROM_OUTPUT', 'HELD_UNSEEN_PUNCH', 'HELD_NO_OPS_MAILBOX', 'DRAFTED_OPS_DEFAULT_MAILBOX', 'DRAFTED_OPS_DIGEST', 'DRAFTED_INDIVIDUAL', 'NOT_REQUIRED'];
   const statusByBaseRowId = new Map<string, EmailStatus>();
   emailActions.forEach(action => {
     const status = statusByRowId.get(action.row_id);

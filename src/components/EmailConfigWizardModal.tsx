@@ -184,6 +184,7 @@ export function EmailConfigWizardModal({ isOpen, onClose, config, onSaveConfig }
     onSaveConfig({
       ...draft,
       sectionMailboxMap: normalizeSectionMailboxMap(draft.sectionMailboxMap),
+      defaultOpsMailbox: draft.defaultOpsMailbox.trim(),
       employeeManagerMap: normalizeEmployeeManagerMap(draft.employeeManagerMap),
     });
     onClose();
@@ -241,7 +242,7 @@ export function EmailConfigWizardModal({ isOpen, onClose, config, onSaveConfig }
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
               <div className="flex items-start justify-between gap-4">
                 <p className="text-[11px] text-slate-500">
-                  EMAIL_OPS cases are pooled by Section into one digest email per Section's mailbox. A Section with no mapping here falls back to individual Employee+CC Manager drafts instead.
+                  EMAIL_OPS cases are pooled by Section into one digest email per Section's mailbox. A Section with no mapping here goes to the default OPS mailbox below; if that is blank, its cases are held (never re-routed to the employee).
                 </p>
                 <label className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 shadow-2xs transition-all cursor-pointer shrink-0">
                   Import CSV
@@ -257,6 +258,18 @@ export function EmailConfigWizardModal({ isOpen, onClose, config, onSaveConfig }
                   />
                 </label>
               </div>
+
+              <label className="block">
+                <span className="block text-[11px] font-semibold text-slate-700">Default OPS mailbox</span>
+                <span className="block text-[10px] text-slate-500 mb-1">Used for any Section with no mapping below — its digest is still one email per Section per day. Leave blank to hold unmapped Sections instead.</span>
+                <input
+                  type="text"
+                  value={draft.defaultOpsMailbox}
+                  placeholder="e.g. ops@thecontactcentre.ae"
+                  onChange={(e) => setDraft(prev => ({ ...prev, defaultOpsMailbox: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs shadow-2xs focus:outline-none focus:border-sky-500"
+                />
+              </label>
 
               <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
                 <table className="w-full text-left text-xs">

@@ -47,9 +47,9 @@ function rebuildEmailActionsJson(
 ): string {
   const { eligible } = computeEmailStatusByRowId(
     emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates,
-    heldRowIds.size > 0 ? heldRowIds : undefined,
+    heldRowIds.size > 0 ? heldRowIds : undefined, config.defaultOpsMailbox,
   );
-  const { finalActions } = planEmailDraftActions(eligible, config.sectionMailboxMap, config.emailTemplates);
+  const { finalActions } = planEmailDraftActions(eligible, config.sectionMailboxMap, config.emailTemplates, config.defaultOpsMailbox);
   return JSON.stringify(finalActions, null, 2);
 }
 
@@ -189,7 +189,7 @@ export function rebuildOutputs(
 
   if (heldRowIds.size > 0) {
     const { statusByBaseRowId } = computeEmailStatusByRowId(
-      emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates, heldRowIds,
+      emailActions, eligibleRowIdSet(rows), config.sectionMailboxMap, config.emailTemplates, heldRowIds, config.defaultOpsMailbox,
     );
     annotatedCognosCsv = patchAnnotatedEmailStatus(annotatedCognosCsv, rows, ',', statusByBaseRowId, heldRowIds);
     annotatedCognosTsv = patchAnnotatedEmailStatus(annotatedCognosTsv, rows, '\t', statusByBaseRowId, heldRowIds);

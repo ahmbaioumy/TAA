@@ -78,7 +78,7 @@ export function getSampleCognosRecords(): CognosRecord[] {
       'SIGN IN DATE': '2026-08-28 00:00:00', SECTION: 'SALES', 'PF NO': '4508903', NAME: 'Khaled Mansoori', 'LOGIN ID': '67892',
       DUTY1: '08:00 - 16:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '06:54',
       'SIGIN IN': '09:06', 'SIGIN OUT': '16:00', 'LATE START': '-66', 'LEFT EARLY': '0', 'LEAVE TYPE': '', 'LEAVE HR': '0',
-      REMARK: 'Family V: EMAIL_OPS held (sectionMailboxMap ships empty by default -- universal; not SALES-specific)',
+      REMARK: 'Family V: EMAIL_OPS unmapped Section (sectionMailboxMap ships empty -> default OPS mailbox; held if that is blank)',
     },
     {
       'SIGN IN DATE': '2026-08-28 00:00:00', SECTION: 'OPS', 'PF NO': '4508904', NAME: 'Amina Al-Hammadi', 'LOGIN ID': '67893',

@@ -223,7 +223,8 @@ assert.ok(annotated.includes('Approved by payroll lead'));
 
 // The two email-audit columns must be present and populated end to end. The
 // sample dataset produces at least one EMAIL_OPS case and DEFAULT_CONFIG ships no
-// Section mailboxes, so that case is held — and Output 2 is where that fact has to live.
+// Section mailboxes, so that case goes to the shipped default OPS mailbox (or, with
+// the default blanked, is held) — and Output 2 is where that fact has to live.
 {
   const header = annotated.split('\n')[0].split(',');
   assert.ok(header.includes('TAA_COMMUNICATION_RULE'), 'Output 2 must carry the fired communication rule');
@@ -247,10 +248,22 @@ assert.ok(annotated.includes('Approved by payroll lead'));
   assert.equal(statuses.length, output.rows.length, 'every reconciled row gets an email status');
   assert.ok(statuses.every(s => s && s !== 'UNKNOWN'), 'no row may report UNKNOWN once emailActions are supplied');
   assert.ok(
-    statuses.includes('HELD_NO_OPS_MAILBOX'),
-    'the sample dataset holds one OPS case with the shipped empty mailbox map — Output 2 must say so',
+    statuses.includes('DRAFTED_OPS_DEFAULT_MAILBOX'),
+    'the sample dataset routes one OPS case to the shipped default OPS mailbox — Output 2 must say so',
   );
-  const heldRow = dataRows.find(c => c[statusIdx] === 'HELD_NO_OPS_MAILBOX')!;
+  assert.ok(!statuses.includes('HELD_NO_OPS_MAILBOX'), 'with the shipped default OPS mailbox nothing is held for a missing Section mapping');
+  const defaultedRow = dataRows.find(c => c[statusIdx] === 'DRAFTED_OPS_DEFAULT_MAILBOX')!;
+  assert.equal(defaultedRow[ruleIdx], 'EMAIL_OPS', 'the defaulted row must record which rule required the email');
+
+  // Blanking the default restores the hold, and Output 2 must record it.
+  const noDefaultConfig = { ...DEFAULT_CONFIG, defaultOpsMailbox: '' };
+  const annotatedNoDefault = generateAnnotatedCognosFile(output.rows, ',', noDefaultConfig, audit, output.emailActions);
+  const noDefaultStatuses = annotatedNoDefault.split('\n').slice(1).map(l => l.split(',')[statusIdx]);
+  assert.ok(
+    noDefaultStatuses.includes('HELD_NO_OPS_MAILBOX'),
+    'with no default OPS mailbox the sample dataset holds one OPS case — Output 2 must say so',
+  );
+  const heldRow = annotatedNoDefault.split('\n').slice(1).map(l => l.split(',')).find(c => c[statusIdx] === 'HELD_NO_OPS_MAILBOX')!;
   assert.equal(heldRow[ruleIdx], 'EMAIL_OPS', 'the held row must record which rule required the email');
   assert.ok(
     dataRows.filter(c => c[statusIdx] === 'NOT_REQUIRED').every(c => c[ruleIdx] === 'NA'),
@@ -348,7 +361,7 @@ assert.ok(renderOpsDigestTable([prestigeA]).includes('Prestige One'));
 
 // Empty input must not throw and must return empty groups, not undefined.
 const emptyPool = poolEmailOpsActionsBySection([], [{ section: 'PRESTIGE', mailbox: 'prestigeagents@thecontactcenter.ae' }], DEFAULT_EMAIL_TEMPLATES);
-assert.deepEqual(emptyPool, { pooled: [], held: [] });
+assert.deepEqual(emptyPool, { pooled: [], held: [], defaulted: [] });
 
 // Same section, two different nominate_date values must form two separate
 // digest groups (the section||date compound key), never merged across days.
@@ -381,6 +394,50 @@ assert.equal(
 );
 assert.equal(findSectionMailbox([{ section: 'PRESTIGE', mailbox: 'x@y.test' }], 'Prestige Team'), undefined);
 assert.equal(findSectionMailbox([], 'Prestige'), undefined);
+
+// Default OPS mailbox fallback: a Section with no mapping is drafted to the
+// configured default instead of being held — still an OPS mailbox, never the
+// employee — while a mapped Section keeps its own mailbox.
+assert.equal(findSectionMailbox([], 'Prestige', ' ops@default.test '), 'ops@default.test');
+assert.equal(findSectionMailbox([{ section: 'PRESTIGE', mailbox: 'x@y.test' }], 'Prestige', 'ops@default.test'), 'x@y.test');
+assert.equal(findSectionMailbox([], 'Prestige', '   '), undefined, 'a blank default means no fallback');
+{
+  const { pooled: dPooled, held: dHeld, defaulted } = poolEmailOpsActionsBySection(
+    [prestigeA, prestigeB, usmbUnmapped, staffUnaffected],
+    [{ section: 'PRESTIGE', mailbox: 'prestigeagents@thecontactcenter.ae' }],
+    DEFAULT_EMAIL_TEMPLATES,
+    'ops@default.test',
+  );
+  assert.equal(dHeld.length, 0, 'with a default OPS mailbox nothing is held');
+  assert.equal(dPooled.length, 2, 'mapped Prestige digest + defaulted USMB digest');
+  const prestigeDigest = dPooled.find(a => a.section === 'Prestige')!;
+  const usmbDigest = dPooled.find(a => a.section === 'USMB')!;
+  assert.equal(prestigeDigest.ops_mailbox, 'prestigeagents@thecontactcenter.ae', 'a Section mapping wins over the default');
+  assert.ok(!prestigeDigest.ops_mailbox_is_default);
+  assert.equal(usmbDigest.ops_mailbox, 'ops@default.test');
+  assert.equal(usmbDigest.ops_mailbox_is_default, true);
+  assert.equal(usmbDigest.communication_rule, 'EMAIL_OPS', 'a defaulted case stays on the OPS route');
+  assert.ok(usmbDigest.body.includes('default OPS mailbox'), 'the defaulted digest must say why it reached the default mailbox');
+  assert.deepEqual(defaulted.map(a => a.row_id), ['u1']);
+
+  const dPlan = planEmailDraftActions(
+    [prestigeA, prestigeB, usmbUnmapped, staffUnaffected], [], DEFAULT_EMAIL_TEMPLATES, 'ops@default.test',
+  );
+  assert.equal(dPlan.held.length, 0);
+  assert.deepEqual(dPlan.defaultedSections.sort(), ['Prestige', 'USMB']);
+  assert.ok(dPlan.finalActions.every(a => a.communication_rule !== 'EMAIL_OPS' || a.ops_mailbox === 'ops@default.test'));
+
+  const { statusByRowId: dStatus } = computeEmailStatusByRowId(
+    [prestigeA, usmbUnmapped, staffUnaffected], null,
+    [{ section: 'PRESTIGE', mailbox: 'prestigeagents@thecontactcenter.ae' }], DEFAULT_EMAIL_TEMPLATES,
+    undefined, 'ops@default.test',
+  );
+  assert.equal(dStatus.get('p1'), 'DRAFTED_OPS_DIGEST');
+  assert.equal(dStatus.get('u1'), 'DRAFTED_OPS_DEFAULT_MAILBOX', 'Output 2 must record that the default mailbox was used');
+  assert.equal(dStatus.get('s1'), 'DRAFTED_INDIVIDUAL');
+
+  assert.equal(DEFAULT_CONFIG.defaultOpsMailbox, 'ops@thecontactcentre.ae', 'the shipped config carries a default OPS mailbox');
+}
 
 // shortenFindingLabel: the digest table and staff-facing {{finding}} must get a
 // short label, while the full rule trace stays available via {{category}}.
@@ -416,6 +473,9 @@ assert.ok(verboseTable.includes('release-adjusted end 17:00'), 'the full rule tr
 const configWithMailbox: ConfigRegistry = {
   ...DEFAULT_CONFIG,
   sectionMailboxMap: [{ section: 'PRESTIGE', mailbox: 'prestigeagents@thecontactcenter.ae' }],
+  // Blank default: these assertions cover the HOLD path for unmapped Sections
+  // (the default-mailbox fallback is covered separately above).
+  defaultOpsMailbox: '',
 };
 
 const plan = planEmailDraftActions(
