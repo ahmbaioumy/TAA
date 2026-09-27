@@ -1,0 +1,248 @@
+[
+  {
+    "id": "BR-01",
+    "name": "Nursing carve-out + very late departure",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-02",
+    "name": "Cross-midnight late+early, two covers",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-03",
+    "name": "Officer RLS + late login + 60m late logout boundary",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-04",
+    "name": "Absent + OT1/OT2 + RLS overlap",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-05",
+    "name": "Late login + unattended cover escalates to absent",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-06",
+    "name": "Officer cover moved forward & stacked",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-07",
+    "name": "Flex branch A + early logout after shifted end",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-08",
+    "name": "Flex branch B (1m past cutoff) + early-logout absence",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-09",
+    "name": "Flex safety gate for out-of-window schedule",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-10",
+    "name": "Split shift whole-day anchors, no per-block penalty",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-11",
+    "name": "Leave day 59m below anomaly threshold",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-12",
+    "name": "Leave day exactly 60m anomaly boundary",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-13",
+    "name": "P/H-LV + OT2 no-show routes through attendance",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-14",
+    "name": "Cross-midnight thin punch, sufficient file coverage",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-15",
+    "name": "Missing CMS join key forced hold",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-16",
+    "name": "Insufficient CMS coverage precedes R_5/R_6",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-17",
+    "name": "Removal interval union, not sum",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-18",
+    "name": "Ambiguous overlapping removal duration hold",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-19",
+    "name": "Mid-shift removal deducts hours but cannot fabricate an anchor",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "BR-20",
+    "name": "Mixed leave and worked segments hold",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-01",
+    "name": "UTF-16 tab-delimited Cognos parser + multiline REMARK",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-02",
+    "name": "CMS positional full-datetime columns win over time-only",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-03",
+    "name": "Whitespace-padded EMP_ID trims without numeric cast",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-04",
+    "name": "Unpadded date normalization joins correctly",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-05",
+    "name": "Headcount mapping denominator excludes declared no-shows",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-06",
+    "name": "Punch attributed once across two adjacent windows",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-07",
+    "name": "Ambiguous punch attribution tie is held, never auto-decided",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-08",
+    "name": "Bare-date STOP_MOMENT parses as midnight, not missing",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-09",
+    "name": "Incomplete ASPECT timestamp forces INVALID_ASPECT_DATETIME",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-10",
+    "name": "Duplicate identical SHIFT rows do not double schedule hours",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-11",
+    "name": "Comparison tolerance: 1m matches, 2m mismatches (circular)",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-12",
+    "name": "Blank-fill OT1 only, never overwrite populated OT-2",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-13",
+    "name": "Dynamic sentinel detection beyond fixed [-480,-540] list",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-14",
+    "name": "SIGNIN DURATION=00:00 context determines MATCH vs MISMATCH vs NOT_COMPARABLE",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-15",
+    "name": "Specific ANNUAL wins over generic LEAVE container",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-16",
+    "name": "Block gap threshold uses strict < , not <=",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-17",
+    "name": "ASPECT correction CSV writer: format, escaping, de-dup",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-18",
+    "name": "Formula-injection escaping differs by output type",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-19",
+    "name": "Mismatch holds output; forced hold never releasable the same way",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-20",
+    "name": "Cover fallback: nextWeekMonday vs sameDay, explicit note",
+    "passed": true,
+    "failures": []
+  },
+  {
+    "id": "AL-21",
+    "name": "Open-logout (\"0\") row held for review, file not rejected",
+    "passed": true,
+    "failures": []
+  }
+]

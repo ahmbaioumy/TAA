@@ -1,0 +1,43 @@
+{
+  "name": "taa-html",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "test:features": "tsx src/services/featureCompletion.test.ts",
+    "test:trust-matrix": "tsx src/services/trustMatrixRunner.test.ts",
+    "test:regression-suite": "tsx src/services/regressionSuiteRunner.test.ts",
+    "test:xlsx-writer": "tsx src/services/xlsxWriter.test.ts",
+    "test:config-export": "tsx src/services/configExportImport.test.ts",
+    "test:validation40": "tsx scripts/validate40.ts",
+    "test:replay-real": "tsx scripts/replay-real.ts",
+    "test:sch-duration": "tsx scripts/analyze-sch-duration.ts",
+    "test:payroll-math": "tsx scripts/audit-payroll-math.ts",
+    "test:audit-fixes": "tsx src/services/auditFixes.test.ts",
+    "test:audit-reduced-hours": "tsx scripts/audit-reduced-office-hours.ts",
+    "test:hold-policy": "tsx src/services/holdPolicy.test.ts",
+    "test": "npm run test:features && npm run test:trust-matrix && npm run test:regression-suite && npm run test:xlsx-writer && npm run test:schedule-blocks && npm run test:config-export && npm run test:validation40 && npm run test:audit-fixes && npm run test:payroll-math && npm run test:audit-reduced-hours && npm run test:hold-policy",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "test:schedule-blocks": "tsx src/services/scheduleRecomputeBlocks.test.ts"
+  },
+  "dependencies": {
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
+  }
+}

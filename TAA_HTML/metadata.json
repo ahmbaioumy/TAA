@@ -1,0 +1,6 @@
+{
+  "name": "TAA - Time & Attendance Automation",
+  "description": "Reconcile ASPECT schedules against Avaya CMS logins, audit Cognos discrepancies, and generate ASPECT correction CSVs and draft email action lists.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

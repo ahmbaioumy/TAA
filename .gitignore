@@ -12,5 +12,4 @@ coverage/
 .env*
 !.env.example
 .claude/settings.local.json
-TAA_HTML/
 .claude/scheduled_tasks.lock

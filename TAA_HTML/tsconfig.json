@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    // Was off, which silently suppressed TS7016 for unresolved modules: React 19
+    // ships no types and @types/react was missing, so react/react-dom/jsx-runtime
+    // resolved to `any` and the ENTIRE component layer went unchecked (2,604
+    // suppressed errors, every JSX element and prop included) while `npm run lint`
+    // exited 0. With the types installed, full strict costs nothing: 0 errors.
+    "strict": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  }
+}
