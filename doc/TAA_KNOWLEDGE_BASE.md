@@ -1432,6 +1432,45 @@ Verified facts, real 23/09-week (24/09/2026 processing date, 218 rows, 94 held/4
   (never `pipeline.ts`), confirmed unaffected by this change — `npm test` was re-run green
   end-to-end after the feature landed.
 
+## 7q. Held-review reduction: flex base roster + whole make-up COVER (2026-09-27)
+
+Trigger: PF 4500508 on 23/09 was held `MISMATCH_FOUND` although every TAA figure was right.
+ASPECT: FLEX, SHIFT 10:00-18:00, LATE 10:00-10:40, COVER 18:00-18:40; CMS swipes 10:40 / 20:42
+(staffed 00:00 = Cognos SIGNIN DURATION 00:00, MATCH). Cognos: DUTY1 07:00-15:00 (the flex BASE
+roster), SCH DURATION 8:00 (no COVER), LATE START -220 (against 07:00). TAA's ABSENT_SEGMENT is
+correct per Rule 4 (logout 122m past the 18:40 COVER end, even after the COVER).
+
+Two kill-switch-gated (`releaseProvenSafeHolds`) rules, measured on the real 23/09 sample
+(`cognos.csv` 406 rows, `MTD_Seg.csv`, `CMS_23092026.csv` + `CMS_24092026.csv`, default config):
+held **166 → 118**, `MISMATCH_FOUND` **80 → 32**, **0** verdict/action/actionsFired/net/late/
+early/correction diffs across all 406 rows, 0 newly held.
+1. **Flex roster translation** (`cognosComparison.ts`, `flexRosterShiftMin`). Only when the flex
+   algorithm ran (`ctx.isFlex` = tagged AND inside the expected start window) and Cognos DUTY1 vs
+   ASPECT DUTY1 is a pure move (same length ±tol): DUTY1 → NOT_COMPARABLE, and LATE START /
+   LEFT EARLY → NOT_COMPARABLE only when their signed gap equals that move (±tol, direction
+   checked). Any other gap stays MISMATCH and still holds. Non-flex roster moves are untouched
+   (7 such rows on 23/09 stay held — several look like untagged flex staff, `90142xxx`).
+2. **Gate B whole make-up COVER** (`reconciliationEngine.ts`, `gapIsWholeCover`). The late-
+   make-up exclusion no longer applies when the SCH DURATION gap equals the day's entire COVER
+   (±tol) — both readings then name the same minutes. The existing band-neutrality test
+   (Late Logout / Cover Not Attended with vs without the gap) must still pass. Partial gaps keep
+   the old exclusion (`reg-186`).
+
+With the user's real `Config.json` (drops `UAE*` PFs → 218 rows, classifies every code above,
+pre-releases every `*|MISMATCH_FOUND:*|NO_ACTION` combination): held **41 → 21**, **0**
+calculation diffs, 0 newly held; released 20 = ABSENT_SEGMENT 9, SHIFT_UPDATE_FLEX 4,
+LOGOFF_AND_COVER 4, LATE_AND_COVER 3 (all FLEX roster or whole-COVER rows). Of the 12
+`MISMATCH_FOUND` left, 4 (PF 4500647, 4506601, 4507179, 4500116) show Cognos SCH DURATION exactly
+60m BELOW ASPECT with no release segment in ASPECT, and TAA marks each ABSENT for a 50-60m early
+logout — if Cognos's shorter day is right the absence is wrong, so these are genuine pay-affecting
+disagreements and correctly stay held (likely a release/permission recorded outside ASPECT).
+
+Tests: `reg-180`..`reg-186` (positive + negative twins, kill switch); suite 231 → 238.
+`scheduleRecomputeBlocks.test.ts` note assertion updated for the whole-COVER wording, plus a
+partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_SEGMENT_CODE`
+(glossary gaps — a business classification decision, not a calculation), 32 `MISMATCH_FOUND`
+(mostly non-flex LATE_EARLY / SCHEDULE disagreements with pay-affecting actions).
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

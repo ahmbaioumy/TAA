@@ -5,6 +5,7 @@ import {
   CMSPunch,
   ConfigRegistry,
   EmailActionItem,
+  ReconciliationRow,
 } from '../types/taa';
 import { generateAspectCorrectionsCsv, runReconciliation } from './reconciliationEngine';
 import { DEFAULT_CONFIG } from './configRegistry';
@@ -8433,6 +8434,121 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
         'releaseProvenSafeHolds=true -> the reg-104 MISMATCH->MATCH downgrade runs',
         'SIGNIN DURATION downgrades to MATCH -> row not held for MISMATCH_FOUND',
       ],
+    });
+  }
+
+  // reg-180..reg-186 (held-review reduction, 2026-09-27): two proven-explained Cognos
+  // differences that used to hold correct rows (real 23/09 sample: 166 -> 118 held, zero
+  // verdict/action/correction changes). (1) Flex roster translation — Cognos prints a flex
+  // employee's BASE roster in DUTY1 and measures LATE START / LEFT EARLY against it; ASPECT
+  // holds the same-length flex-moved shift TAA measures against (PRD §4.8). (2) Gate B whole
+  // make-up COVER — Cognos SCH DURATION leaves out the entire COVER ASPECT records for a LATE.
+  // Each positive case has a negative twin proving the rule stays narrow.
+  {
+    const flexId = (pf: string): AspectIdentity => ({ EMP_ID: pf, EMP_LAST_NAME: 'Flex Roster Agent', EMP_SORT_NAME: 'FLEX ROSTER AGENT FLX' });
+    const plainId = (pf: string): AspectIdentity => ({ EMP_ID: pf, EMP_LAST_NAME: 'Plain Roster Agent', EMP_SORT_NAME: 'PLAIN ROSTER AGENT' });
+    // Real shape (PF 4500508 / 90142777 on 23/09): Cognos base roster 07:00-15:00, ASPECT
+    // flex shift 10:00-18:00 (same 8h), one real session 09:58 -> 18:02.
+    const flexCognos = (pf: string, over: Partial<CognosRecord> = {}): CognosRecord => ({
+      'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'OPS', 'PF NO': pf, NAME: 'Flex Roster Agent', 'LOGIN ID': `3${pf.slice(-4)}`,
+      DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '08:04', 'SIGIN IN': '09:58', 'SIGIN OUT': '18:02',
+      'LATE START': '-178', 'LEFT EARLY': '182', 'LEAVE TYPE': '', 'LEAVE HR': '', REMARK: '', ...over,
+    });
+    const flexSegs = (pf: string): AspectSegment[] => [
+      { EMP_ID: pf, NOM_DATE: '27/08/2026', START_DATE: '27/08/2026', SEG_CODE: 'SHIFT', START_MOMENT: '27/08/2026 10:00:00', STOP_MOMENT: '27/08/2026 18:00:00', DURATION: 480 },
+    ];
+    const flexPunches = (pf: string): CMSPunch[] => [
+      { Date: '27/08/2026', LoginID: `3${pf.slice(-4)}`, LoginDateTime: makeDt('27/08/2026', '09:58:00'), LogoutDateTime: makeDt('27/08/2026', '18:02:00') },
+    ];
+    const runFlex = (pf: string, identity: AspectIdentity, cognos: CognosRecord, releaseProvenSafeHolds = true) => runReconciliation({
+      processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: flexSegs(pf), aspectIdentities: [identity], cmsPunches: flexPunches(pf),
+      config: { ...config, releaseProvenSafeHolds },
+    }).rows[0];
+    const statusOf = (row: ReconciliationRow, col: string) => row.columnComparisons.find(c => c.column === col)?.status;
+    const flexCase = (id: string, name: string, row: ReconciliationRow, passed: boolean, inputDescription: string, expectedVerdict: string, payrollImpact: string) => results.push({
+      id, name, category: 'Held-review reduction — proven Cognos basis differences', inputDescription,
+      cognosFlawedVerdict: 'Cognos DUTY1 / LATE START / LEFT EARLY use the flex base roster, not the flex-moved ASPECT shift',
+      expectedVerdict, expectedAction: 'NO_ACTION (unchanged by the hold decision)',
+      actualVerdict: `DUTY1=${statusOf(row, 'DUTY1')}; LATE START=${statusOf(row, 'LATE START')}; LEFT EARLY=${statusOf(row, 'LEFT EARLY')}; holdReason=${row.holdReason}`,
+      actualAction: row.TAA_ACTION, passed, payrollImpact,
+      calculationTrace: [`TAA_ACTION=${row.TAA_ACTION}`, `includeInOutput=${row.includeInOutput}`],
+    });
+
+    const r180 = runFlex('7000180', flexId('7000180'), flexCognos('7000180'));
+    flexCase('reg-180', 'Flex base roster vs flex-moved ASPECT shift (same length): released, action unchanged', r180,
+      statusOf(r180, 'DUTY1') === 'NOT_COMPARABLE' && statusOf(r180, 'LATE START') === 'NOT_COMPARABLE' && statusOf(r180, 'LEFT EARLY') === 'NOT_COMPARABLE'
+        && !r180.holdReason && r180.TAA_ACTION === 'NO_ACTION' && r180.includeInOutput,
+      'FLEX, Cognos DUTY1 07:00-15:00, ASPECT SHIFT 10:00-18:00, session 09:58-18:02; Cognos LATE START -178 / LEFT EARLY 182 = TAA +2 / +2 shifted by exactly 180m',
+      'DUTY1, LATE START, LEFT EARLY all NOT_COMPARABLE; row not held',
+      'None — verdict/action come from ASPECT+CMS either way; only the hold is lifted');
+
+    const r181 = runFlex('7000181', plainId('7000181'), flexCognos('7000181'));
+    flexCase('reg-181', 'Same shape, NOT flex-tagged: roster difference is a genuine disagreement and stays held', r181,
+      statusOf(r181, 'DUTY1') === 'MISMATCH' && r181.holdReason === 'MISMATCH_FOUND',
+      'reg-180 inputs with a non-flex identity', 'DUTY1 stays MISMATCH; row held MISMATCH_FOUND',
+      'Keeps a real roster change on a non-flex employee in front of a reviewer');
+
+    const r182 = runFlex('7000182', flexId('7000182'), flexCognos('7000182'), false);
+    flexCase('reg-182', 'KILL SWITCH OFF: flex roster downgrade never runs', r182,
+      statusOf(r182, 'DUTY1') === 'MISMATCH' && r182.holdReason === 'MISMATCH_FOUND',
+      'reg-180 inputs, releaseProvenSafeHolds=false', 'DUTY1 stays MISMATCH; row held MISMATCH_FOUND',
+      'Confirms the kill switch restores the pre-change held behaviour');
+
+    const r183 = runFlex('7000183', flexId('7000183'), flexCognos('7000183', { DUTY1: '07:00 - 16:30', 'LEFT EARLY': '92' }));
+    flexCase('reg-183', 'Flex, but Cognos roster is a DIFFERENT LENGTH (9.5h vs 8h): not a pure move, stays held', r183,
+      statusOf(r183, 'DUTY1') === 'MISMATCH' && r183.holdReason === 'MISMATCH_FOUND',
+      'FLEX, Cognos DUTY1 07:00-16:30 vs ASPECT 10:00-18:00', 'DUTY1 stays MISMATCH; row held MISMATCH_FOUND',
+      'A length change is a schedule disagreement, not the flex reporting basis');
+
+    const r184 = runFlex('7000184', flexId('7000184'), flexCognos('7000184', { 'LATE START': '-150' }));
+    flexCase('reg-184', 'Flex pure move, but Cognos LATE START gap is NOT the move: that column stays MISMATCH, row held', r184,
+      statusOf(r184, 'DUTY1') === 'NOT_COMPARABLE' && statusOf(r184, 'LATE START') === 'MISMATCH' && r184.holdReason === 'MISMATCH_FOUND',
+      'reg-180 inputs with Cognos LATE START -150 (gap 152m vs a 180m move)', 'DUTY1 NOT_COMPARABLE; LATE START MISMATCH; row held',
+      'Only the part of the difference the roster move explains is downgraded');
+
+    // Gate B whole make-up COVER (real shape: PF 4500508, 40116355, 4036620 on 23/09).
+    const coverCognos = (pf: string, sch: string, late: number): CognosRecord => ({
+      'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'OPS', 'PF NO': pf, NAME: 'Make-up Cover Agent', 'LOGIN ID': `3${pf.slice(-4)}`,
+      DUTY1: '08:00 - 16:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': sch, 'SIGNIN DURATION': '08:01', 'SIGIN IN': `08:${late}`, 'SIGIN OUT': `16:${late + 1}`,
+      'LATE START': `-${late}`, 'LEFT EARLY': `${late + 1}`, 'LEAVE TYPE': '', 'LEAVE HR': '', REMARK: '',
+    });
+    const runCover = (pf: string, sch: string, late: number) => runReconciliation({
+      processingDate: SUITE_RUN_DATE, cognosRecords: [coverCognos(pf, sch, late)],
+      aspectSegments: [
+        { EMP_ID: pf, NOM_DATE: '27/08/2026', START_DATE: '27/08/2026', SEG_CODE: 'SHIFT', START_MOMENT: '27/08/2026 08:00:00', STOP_MOMENT: '27/08/2026 16:00:00', DURATION: 480 },
+        { EMP_ID: pf, NOM_DATE: '27/08/2026', START_DATE: '27/08/2026', SEG_CODE: 'LATE', START_MOMENT: '27/08/2026 08:00:00', STOP_MOMENT: `27/08/2026 08:${late}:00`, DURATION: late },
+        { EMP_ID: pf, NOM_DATE: '27/08/2026', START_DATE: '27/08/2026', SEG_CODE: 'COVER', START_MOMENT: '27/08/2026 16:00:00', STOP_MOMENT: `27/08/2026 16:${late}:00`, DURATION: late },
+      ],
+      aspectIdentities: [plainId(pf)],
+      cmsPunches: [{ Date: '27/08/2026', LoginID: `3${pf.slice(-4)}`, LoginDateTime: makeDt('27/08/2026', `08:${late}:00`), LogoutDateTime: makeDt('27/08/2026', `16:${late + 1}:00`) }],
+      config: { ...config, releaseProvenSafeHolds: true },
+    }).rows[0];
+    const r185 = runCover('7000185', '8:0', 30);
+    const r185sch = r185.columnComparisons.find(c => c.column === 'SCH DURATION');
+    results.push({
+      id: 'reg-185', name: 'Cognos SCH DURATION leaves out the WHOLE make-up COVER for a recorded LATE: released', category: 'Held-review reduction — proven Cognos basis differences',
+      inputDescription: 'SHIFT 08:00-16:00 + LATE 08:00-08:30 + COVER 16:00-16:30 in ASPECT, session 08:30-16:31, Cognos SCH DURATION 8:0 (TAA 8:30)',
+      cognosFlawedVerdict: 'Cognos SCH DURATION omits the 30m COVER ASPECT already records',
+      expectedVerdict: 'SCH DURATION reads MISMATCH (honest) but is action-neutral; row not held',
+      expectedAction: 'Unchanged by the hold decision',
+      actualVerdict: `SCH DURATION=${r185sch?.status}; holdReason=${r185.holdReason}; note=${r185sch?.note}`,
+      actualAction: r185.TAA_ACTION,
+      passed: r185sch?.status === 'MISMATCH' && !r185.holdReason && /whole 30m make-up COVER/.test(r185sch?.note || '') && /Action-neutral/.test(r185sch?.note || ''),
+      payrollImpact: 'None — the band-neutrality test proves Cognos\'s figure would drive the same action',
+      calculationTrace: [`gap 30m = COVER 30m = LATE 30m`, `TAA_ACTION=${r185.TAA_ACTION}`],
+    });
+    const r186 = runCover('7000186', '8:10', 40);
+    results.push({
+      id: 'reg-186', name: 'Gap is only PART of the make-up COVER (30m of 40m): still ambiguous, stays held', category: 'Held-review reduction — proven Cognos basis differences',
+      inputDescription: 'SHIFT 08:00-16:00 + LATE 40m + COVER 40m, Cognos SCH DURATION 8:10 (TAA 8:40, gap 30m)',
+      cognosFlawedVerdict: 'Unknown — partial gap could be a late-make-up disagreement',
+      expectedVerdict: 'SCH DURATION MISMATCH; row held MISMATCH_FOUND',
+      expectedAction: 'N/A (held for review)',
+      actualVerdict: `SCH DURATION=${statusOf(r186, 'SCH DURATION')}; holdReason=${r186.holdReason}`,
+      actualAction: r186.TAA_ACTION,
+      passed: statusOf(r186, 'SCH DURATION') === 'MISMATCH' && r186.holdReason === 'MISMATCH_FOUND',
+      payrollImpact: 'Keeps the pre-existing late-make-up exclusion for every gap that is not the whole COVER',
+      calculationTrace: ['gap 30m != COVER 40m -> explainedByLateMakeUp still excludes Gate B'],
     });
   }
 

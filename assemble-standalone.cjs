@@ -65,7 +65,7 @@ const tail = `
 </html>
 `;
 
-const outPath = path.join(__dirname, '..', 'TAA_Workspace.html');
+const outPath = path.join(__dirname, 'TAA_Workspace.html');
 const finalHtml = head + cssContent + middle + jsContent + tail;
 
 fs.writeFileSync(outPath, finalHtml, 'utf8');

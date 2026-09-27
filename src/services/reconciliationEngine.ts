@@ -1900,6 +1900,9 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       attendanceVerdictLabel,
       leaveMinutes,
       isLeaveDay,
+      // Only when the flex algorithm actually evaluated this row (tagged AND inside the
+      // expected start window) — an out-of-window flex row runs standard rules and is held.
+      isFlex: isFlex && !isFlexOutOfWindow,
     };
     const comparisonResult = compareCognosRow(cognos, comparisonCtx, config);
     if (comparisonResult.mismatchColumns.length > 0) {
@@ -2006,8 +2009,14 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         // ahead of the COVER one, whenever both math tests pass) — a genuine late-make-up
         // disagreement, not proven Cognos-missing-cover, so it stays held.
         const tol = config.comparisonToleranceMinutes ?? 1;
-        const explainedByLateMakeUp = gap !== 0 && comparisonCtx.lateSegmentMinutes > 0 && Math.abs(gap) <= comparisonCtx.lateSegmentMinutes + tol;
-        if (gap > 0 && gap <= comparisonCtx.coverMinutes && !explainedByLateMakeUp) {
+        // Exception (2026-09-27): when the gap is the day's ENTIRE COVER (±tol), both readings
+        // name the same minutes — the make-up COVER ASPECT records for the LATE is exactly what
+        // Cognos's SCH DURATION leaves out — so it is proven Cognos-missing-cover, not ambiguous.
+        // The band-neutrality test below still has to pass before anything is released.
+        // Real case: PF 4500508 23/09, LATE 10:00-10:40 + COVER 18:00-18:40, Cognos 8:00, TAA 8:40.
+        const gapIsWholeCover = comparisonCtx.coverMinutes > 0 && Math.abs(gap - comparisonCtx.coverMinutes) <= tol;
+        const explainedByLateMakeUp = gap !== 0 && comparisonCtx.lateSegmentMinutes > 0 && Math.abs(gap) <= comparisonCtx.lateSegmentMinutes + tol && !gapIsWholeCover;
+        if (gap > 0 && gap <= comparisonCtx.coverMinutes + (gapIsWholeCover ? tol : 0) && !explainedByLateMakeUp) {
           const lateLogoutRuleBase = lookupRule('Late Logout', gateLateLogoutChargeMin);
           const lateLogoutRuleGap = lookupRule('Late Logout', gateLateLogoutChargeMin + gap);
           const coverRuleBase = gateCoverShortfallMin > 0 ? lookupRule('Cover Not Attended', gateCoverShortfallMin) : undefined;

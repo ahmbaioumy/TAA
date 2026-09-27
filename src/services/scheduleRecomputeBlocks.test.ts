@@ -727,6 +727,19 @@ const schColumn = (segments: AspectSegment[], cognosSch: string) => {
   ], '8:0');
   assert.equal(sch.recomputedMinutes, 496);
   assert.equal(sch.status, 'MISMATCH');
+  // The gap is the WHOLE COVER, so the note names it (the engine's Gate B gapIsWholeCover
+  // then decides the hold; the column itself still reads MISMATCH honestly).
+  assert.ok(/whole 16m make-up COVER ASPECT records for the 16m LATE/.test(sch.note || ''), `note was: ${sch.note}`);
+}
+{
+  // Only PART of the make-up COVER is missing from Cognos (8:6 vs net 8:16): still the
+  // ambiguous late-make-up note.
+  const { sch } = schColumn([
+    seg({ SEG_CODE: 'SHIFT', START_MOMENT: `${D} 08:00:00`, STOP_MOMENT: `${D} 16:00:00`, DURATION: 480 }),
+    seg({ SEG_CODE: 'LATE', START_MOMENT: `${D} 08:00:00`, STOP_MOMENT: `${D} 08:16:00`, DURATION: 16 }),
+    seg({ SEG_CODE: 'COVER', START_MOMENT: `${D} 16:00:00`, STOP_MOMENT: `${D} 16:16:00`, DURATION: 16 }),
+  ], '8:6');
+  assert.equal(sch.status, 'MISMATCH');
   assert.ok(/LATE make-up minutes \(16m\)/.test(sch.note || ''), `note was: ${sch.note}`);
 }
 {
