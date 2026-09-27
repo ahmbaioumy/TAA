@@ -451,7 +451,6 @@ function buildInvalidConfigOutput(
  * Cognos's own numbers.
  */
 export function runReconciliation(input: ReconciliationInput): ReconciliationOutput {
-  consumedRecordedCovers = new WeakSet<AspectSegment>();
   const { cognosRecords, aspectSegments, aspectIdentities, cmsPunches, config, verificationAudit, processingDate } = input;
 
   const identityMap = new Map<string, AspectIdentity>();
@@ -1205,6 +1204,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             varianceMeasurements.push(traceMeasurement('LATE_LOGOUT', 'flex shifted end (snapped start + SHIFT effective duration)', newEndDt, actualLastLogoutDt, downstream.lateLogoutMin, lookupRule('Late Logout', downstream.lateLogoutMin), referenceDay));
           }
           if (downstream.varianceInterval) firedVarianceIntervals.push(downstream.varianceInterval); // WP5/B5/B15
+          if (downstream.infoNote) ruleFired += ` | ${downstream.infoNote}`;
         }
         // Only let the downstream check override the verdict when it actually
         // found an early/late-logout issue — its "nothing fired" result must
@@ -1296,15 +1296,21 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         lateMin = diffInMinutes(cutoffDt, actualFirstLoginDt!);
         const bandFires = flexLateBandFires(config, tier, lateMin);
         varianceMeasurements.push(traceMeasurement('FLEX_PAST_CUTOFF', `flex cutoff ${cutoffTimeStr} (not the scheduled start)`, cutoffDt, actualFirstLoginDt, lateMin, lookupRule('Late Login', lateMin), referenceDay));
-        chargedVarianceMin = lateMin;
+        // "Already actioned" rule (see findAlreadyRecordedIncident): a LATE ASPECT already holds
+        // for this day means no LATE and no COVER — only the shift-update pair (a schedule move,
+        // not the late itself) is still emitted, so the row reads as a plain flex shift update.
+        const recordedFlexLate = bandFires ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin) : null;
+        chargedVarianceMin = recordedFlexLate ? 0 : lateMin;
 
         verdict = 'LATE';
-        action = 'SHIFT_UPDATE_AND_LATE_COVER_FLEX';
-        resultCategory = 'LATE_AND_COVER_ADDED';
+        action = recordedFlexLate ? 'SHIFT_UPDATE_FLEX' : 'SHIFT_UPDATE_AND_LATE_COVER_FLEX';
+        resultCategory = recordedFlexLate ? 'SHIFT_CHANGED' : 'LATE_AND_COVER_ADDED';
         disagreeReason = 'MATCH';
-        ruleFired = `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
+        ruleFired = recordedFlexLate
+          ? `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m -> ${recordedFlexLate.note}`
+          : `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
         firedCommunicationRule = 'NA'; // flex over-cutoff Late+Cover carries no email per §4.1 band-1 rows
-        pushFiredAction({ actionCode: action, communicationRule: firedCommunicationRule, emailTemplateKey, varianceMin: lateMin, note: ruleFired });
+        pushFiredAction({ actionCode: action, communicationRule: firedCommunicationRule, emailTemplateKey, varianceMin: chargedVarianceMin, note: ruleFired });
 
         rowCorrections.push({
           Code: config.shiftUpdateOriginalCode, ID: pfNo, SegmentCode: SHIFT_CHANGE_SEGMENT_CODE, nominateDate: nomDateStr, SegmentDate: formatSegmentDate(rawStartDt),
@@ -1333,21 +1339,16 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
           reducedOfficeHoursApplied = true;
         }
 
-        if (bandFires) {
+        if (bandFires && !recordedFlexLate) {
           // WP5/B5/B15 — flex bypasses minute bands by default, so "bandFires" (not a
           // lookupRule() != NO_ACTION check) is this branch's own definition of "the
           // action actually fired".
           firedVarianceIntervals.push({ label: 'FLEX_PAST_CUTOFF', start: cutoffDt, end: actualFirstLoginDt! });
-          const recordedFlexLate = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', cutoffDt, lateMin, config, processingDate);
-          if (recordedFlexLate) {
-            ruleFired += ` [${recordedFlexLate.note}]`;
-          } else {
-            rowCorrections.push({
-              Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(cutoffDt),
-              SegmentStarttime: cutoffTimeStr, Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Flex Late Login ${lateMin}m past ${cutoffTimeStr}`,
-            });
-          }
-          if (!recordedFlexLate?.hasCover) {
+          rowCorrections.push({
+            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(cutoffDt),
+            SegmentStarttime: cutoffTimeStr, Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Flex Late Login ${lateMin}m past ${cutoffTimeStr}`,
+          });
+          {
             const coverPlacement = tryPlaceSameDayCover(
               pfNo, nomDateStr, lateMin, 'afterEnd',
               { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt: null, shiftEndDt: newEndDt },
@@ -1384,6 +1385,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             varianceMeasurements.push(traceMeasurement('LATE_LOGOUT', 'flex shifted end (cutoff + SHIFT effective duration)', newEndDt, actualLastLogoutDt, downstream.lateLogoutMin, lookupRule('Late Logout', downstream.lateLogoutMin), referenceDay));
           }
           if (downstream.varianceInterval) firedVarianceIntervals.push(downstream.varianceInterval); // WP5/B5/B15
+          if (downstream.infoNote) ruleFired += ` | ${downstream.infoNote}`;
         }
         if (downstream && downstream.resultCategory !== 'NO_ACTION_REQUIRED') {
           ruleFired += ` | ${downstream.ruleFired}`;
@@ -1547,7 +1549,16 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (lateMin > 0) {
           const lateRule = lookupRule('Late Login', lateMin);
           varianceMeasurements.push(traceMeasurement('LATE_LOGIN', 'effectiveStart (raw start plus any leading release)', effectiveStartDt, actualFirstLoginDt, lateMin, lateRule, referenceDay));
-          if (lateRule && lateRule.action !== 'NO_ACTION') {
+          // "Already actioned" rule: a LATE_AND_COVER finding whose LATE ASPECT already holds
+          // takes no further action at all (see findAlreadyRecordedIncident). The ABSENT band
+          // is never affected — only the LATE_AND_COVER outcome is.
+          const recordedLate = lateRule && lateRule.action === 'LATE_AND_COVER'
+            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin)
+            : null;
+          if (recordedLate) {
+            if (verdict === 'PRESENT') verdict = 'LATE';
+            ruleFiredParts.push(`${lateRule!.segmentType} (${tier}): ${lateMin}m -> ${recordedLate.note}`);
+          } else if (lateRule && lateRule.action !== 'NO_ACTION') {
             chargedVarianceMin = lateMin;
             ruleFiredParts.push(`${lateRule.segmentType} (${tier}): ${lateMin}m -> ${lateRule.actionText}`);
             // WP5/B5/B15 — pushed only once the rule actually fires (never for a
@@ -1557,16 +1568,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             if (lateRule.action === 'LATE_AND_COVER') {
               applyMoreSevere('LATE_AND_COVER_ADDED', 'LATE_AND_COVER', 'LATE', lateRule.communication, 'late_login_absence');
               pushFiredAction({ actionCode: 'LATE_AND_COVER', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: lateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
-              const recordedLate = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', effectiveStartDt, lateMin, config, processingDate);
-              if (recordedLate) {
-                ruleFiredParts[ruleFiredParts.length - 1] += ` [${recordedLate.note}]`;
-              } else {
-                rowCorrections.push({
-                  Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: effectiveStartDt ? formatSegmentDate(effectiveStartDt) : nomDateStr,
-                  SegmentStarttime: effectiveStartDt ? formatTimeHHMM(effectiveStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Late Login ${lateMin}m`,
-                });
-              }
-              if (!recordedLate?.hasCover) {
+              rowCorrections.push({
+                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: effectiveStartDt ? formatSegmentDate(effectiveStartDt) : nomDateStr,
+                SegmentStarttime: effectiveStartDt ? formatTimeHHMM(effectiveStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Late Login ${lateMin}m`,
+              });
+              {
                 const lateCover = tryPlaceSameDayCover(
                   pfNo, nomDateStr, lateMin, 'afterEnd',
                   { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt, shiftEndDt: effectiveEndDt },
@@ -1620,7 +1626,14 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (earlyMin > 0) {
           const earlyRule = lookupRule('Early Logout', earlyMin);
           varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', 'effectiveEnd (raw end minus trailing release/nursing)', effectiveEndDt, actualLastLogoutDt, earlyMin, earlyRule, referenceDay));
-          if (earlyRule && earlyRule.action !== 'NO_ACTION') {
+          // "Already actioned" rule — mirror of the Late Login branch above.
+          const recordedEarly = earlyRule && earlyRule.action === 'LOGOFF_AND_COVER'
+            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', earlyMin)
+            : null;
+          if (recordedEarly) {
+            if (verdict === 'PRESENT') verdict = 'EARLY_LOGOUT';
+            ruleFiredParts.push(`${earlyRule!.segmentType} (${tier}): ${earlyMin}m -> ${recordedEarly.note}`);
+          } else if (earlyRule && earlyRule.action !== 'NO_ACTION') {
             // D-A fix: ADD this rule's minutes to whatever Late Login already
             // charged, instead of keeping only whichever fired first — a row
             // with both a late login AND an early logout must report the
@@ -1632,16 +1645,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             if (earlyRule.action === 'LOGOFF_AND_COVER') {
               applyMoreSevere('LATE_AND_COVER_ADDED', 'LOGOFF_AND_COVER', 'EARLY_LOGOUT', earlyRule.communication, 'early_logout_absence');
               pushFiredAction({ actionCode: 'LOGOFF_AND_COVER', communicationRule: earlyRule.communication, emailTemplateKey: 'early_logout_absence', varianceMin: earlyMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
-              const recordedEarly = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', actualLastLogoutDt, earlyMin, config, processingDate);
-              if (recordedEarly) {
-                ruleFiredParts[ruleFiredParts.length - 1] += ` [${recordedEarly.note}]`;
-              } else {
-                rowCorrections.push({
-                  Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: actualLastLogoutDt ? formatSegmentDate(actualLastLogoutDt) : nomDateStr,
-                  SegmentStarttime: actualLastLogoutDt ? formatTimeHHMM(actualLastLogoutDt) : '15:00', Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
-                });
-              }
-              if (!recordedEarly?.hasCover) {
+              rowCorrections.push({
+                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: actualLastLogoutDt ? formatSegmentDate(actualLastLogoutDt) : nomDateStr,
+                SegmentStarttime: actualLastLogoutDt ? formatTimeHHMM(actualLastLogoutDt) : '15:00', Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
+              });
+              {
                 const earlyCover = tryPlaceSameDayCover(
                   pfNo, nomDateStr, earlyMin, 'beforeStart',
                   { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt, shiftEndDt: effectiveEndDt },
@@ -2521,6 +2529,9 @@ interface DownstreamResult {
    * GROSS window [effectiveEndDt, actualLastLogoutDt], matching the standard path's
    * own choice (see its comment) — the stricter test, not the credited remainder. */
   varianceInterval?: { label: 'EARLY_LOGOUT' | 'LATE_LOGOUT'; start: Date; end: Date };
+  /** Trace-only explanation for a finding that deliberately took no action (the "already
+   * actioned" rule) — appended to ruleFired by the caller even on NO_ACTION_REQUIRED. */
+  infoNote?: string;
 }
 
 /**
@@ -3211,17 +3222,17 @@ function evaluateEarlyAndLateLogout(params: {
     const rule = lookupRule('Early Logout', earlyMin);
     if (rule && rule.action !== 'NO_ACTION') {
       if (rule.action === 'LOGOFF_AND_COVER') {
-        const recordedLogoff = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', actualLastLogoutDt, earlyMin, config, processingDate);
-        const recordedNote = recordedLogoff ? ` [${recordedLogoff.note}]` : '';
-        if (!recordedLogoff) {
-          rowCorrections.push({
-            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(actualLastLogoutDt),
-            SegmentStarttime: formatTimeHHMM(actualLastLogoutDt), Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
-          });
+        // "Already actioned" rule (see findAlreadyRecordedIncident): no Log_off, no COVER.
+        // Returned as NO_ACTION_REQUIRED so callers never fire an action for it; infoNote
+        // carries the explanation into the row's trace.
+        const recordedLogoff = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', earlyMin);
+        if (recordedLogoff) {
+          return { verdict: 'EARLY_LOGOUT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout action', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, infoNote: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${recordedLogoff.note}` };
         }
-        if (recordedLogoff?.hasCover) {
-          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}${recordedNote}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
-        }
+        rowCorrections.push({
+          Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(actualLastLogoutDt),
+          SegmentStarttime: formatTimeHHMM(actualLastLogoutDt), Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
+        });
         // WP2/D10 fix: previously called placeCoverSegment directly here, bypassing
         // same-day cover placement entirely — the only one of the four early/late-logout
         // sites that did. Now tries same-day first, exactly like the standard path's own
@@ -3234,7 +3245,7 @@ function evaluateEarlyAndLateLogout(params: {
         ) ?? placeCoverSegment(pfNo, nomDateStr, earlyMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, params.reducedHoursCoverExcluded ?? false);
         if (cover) {
           rowCorrections.push(cover);
-          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}${recordedNote}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
+          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
         }
         const coverBlockReason = describeCoverPlacementFailure(nomDateStr, segmentsByEmp.get(pfNo) || [], config, processingDate, params.reducedHoursCoverExcluded ?? false);
         return { verdict: 'EARLY_LOGOUT', action: 'MANUAL_REVIEW_REQUIRED', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText} (cover target day has a schedule integrity problem: ${coverBlockReason})`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, holdReason: coverBlockReason, earlyMin, lateLogoutMin };
@@ -3768,12 +3779,7 @@ function tryPlaceSameDayCover(
   return row;
 }
 
-/** Existing ASPECT COVER segments already matched to an incident during THIS run, so two
- * findings on one employee (e.g. Late Login and Early Logout with the same minutes) can never
- * both claim the same recorded cover. Reset at the start of every runReconciliation. */
-let consumedRecordedCovers = new WeakSet<AspectSegment>();
-
-interface RecordedIncident { note: string; hasCover: boolean }
+interface RecordedIncident { note: string }
 
 const segCodeIs = (seg: AspectSegment, code: string) => (seg.SEG_CODE || '').trim().toUpperCase() === code.toUpperCase();
 const segNomKey = (seg: AspectSegment) => normalizeDateKey(seg.NOM_DATE) || seg.NOM_DATE;
@@ -3784,60 +3790,26 @@ function recordedSegMinutes(seg: AspectSegment): number | null {
   return a && b ? Math.round((b.getTime() - a.getTime()) / 60000) : null;
 }
 
-/** Idempotency guard for re-runs over an already-corrected ASPECT export. A LATE / Log_off
- * marker that ASPECT already holds for THIS incident — same code, same schedule day, same start
- * minute, same duration (exact match, never fuzzy) — means the finding was already actioned, so
- * the marker must not be emitted again. The companion COVER is treated as recorded only when
- * that marker is (a bare COVER never suppresses anything on its own) AND an unclaimed COVER of
- * the same length sits on EITHER the incident's own schedule day OR the day THIS incident would
- * resolve to as its cover target (D9/B9 fix, WP2) — an earlier run may have already placed it
- * there. Claimed through the same consumedRecordedCovers set the incident-day check always used,
- * so one existing cover still repays at most one incident (B9's stated red line: two distinct
- * incidents on one day, e.g. a late login and an early logout, must always get two covers, on
- * re-upload as much as on a first run — the marker-recorded gate is what makes that safe, since
- * a second, different incident has no marker of ITS OWN already recorded and so never matches
- * here at all). A marker with no such COVER still returns a result so the caller skips the
- * marker but keeps placing the cover: the agent must never lose the make-up. AspectSegment
- * carries no MEMO, so this can only match on date+duration, never on incident identity —
- * matching the target day closes D9's specific gap (rec-285: an earlier run's cover on a
- * future working day), not the general case of an unrelated same-length cover happening to
- * land on the same day, which remains indistinguishable by design (documented limitation). */
+/** "Already actioned" rule (business decision 2026-09-27, doc/PRD.md §4.1): when ASPECT
+ * already holds a LATE (or Log_off) segment on the incident's own schedule day, the incident
+ * has been actioned outside TAA and TAA takes NO further action for it — no marker AND no
+ * COVER. Any segment of that code on that NOM day counts, whatever its start or minutes: a
+ * recorded LATE of 8m against TAA's measured 10m is still "already added", never a second
+ * LATE (which is what the previous exact start+duration match exported) and never a COVER on
+ * top of it. The caller keeps the verdict for the reviewer and traces both figures. */
 function findAlreadyRecordedIncident(
-  empSegments: AspectSegment[], incidentNomDateStr: string, code: 'LATE' | 'Log_off', startDt: Date | null, minutes: number,
-  config: ConfigRegistry, processingDate: Date,
+  empSegments: AspectSegment[], incidentNomDateStr: string, code: 'LATE' | 'Log_off', measuredMinutes: number,
 ): RecordedIncident | null {
   const incidentKey = normalizeDateKey(incidentNomDateStr) || incidentNomDateStr;
-  const startMin = startDt ? Math.floor(startDt.getTime() / 60000) : null;
-  const marker = empSegments.find(s => {
-    if (!segCodeIs(s, code) || segNomKey(s) !== incidentKey || recordedSegMinutes(s) !== minutes) return false;
-    if (startMin === null) return true;
-    const st = s.START_MOMENT ? parseDateTimeString(s.START_MOMENT) : null;
-    return !!st && Math.floor(st.getTime() / 60000) === startMin;
-  });
-  if (!marker) return null;
-
-  // D9: resolve where a NEW cover for this same incident would land today, and accept an
-  // unclaimed matching cover there too. Uses the exact same resolution placeCoverSegment
-  // would use, so "already repaid" here can never disagree with "where would we place it."
-  const incidentDate = parseDateTimeString(incidentNomDateStr);
-  const targetResolution = incidentDate ? resolveCoverTargetDay(incidentDate, incidentNomDateStr, empSegments, config, processingDate) : null;
-  const targetKey = targetResolution && targetResolution.ok ? targetResolution.targetDateStr : null;
-
-  const cover = empSegments.find(s => {
-    if (!segCodeIs(s, 'COVER') || consumedRecordedCovers.has(s) || recordedSegMinutes(s) !== minutes) return false;
-    const segKey = segNomKey(s);
-    return segKey === incidentKey || (targetKey !== null && segKey === targetKey);
-  });
-  if (cover) consumedRecordedCovers.add(cover);
-  const fmt = (seg: AspectSegment) => {
+  const markers = empSegments.filter(s => segCodeIs(s, code) && segNomKey(s) === incidentKey);
+  if (markers.length === 0) return null;
+  const describe = (seg: AspectSegment) => {
     const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
-    return `${seg.SEG_CODE} ${st ? formatTimeHHMM(st) : '--:--'} ${minutes}m`;
+    const mins = recordedSegMinutes(seg);
+    return `${st ? formatTimeHHMM(st) : '--:--'} ${mins !== null ? `${mins}m` : '?m'}`;
   };
   return {
-    hasCover: !!cover,
-    note: cover
-      ? `already recorded in ASPECT (${fmt(marker)}; ${fmt(cover)}) - not re-emitted`
-      : `${fmt(marker)} already recorded in ASPECT - marker not re-emitted, cover still added`,
+    note: `ASPECT already has ${code} ${markers.map(describe).join(', ')} vs TAA ${measuredMinutes}m — already actioned, no correction (no ${code}, no COVER)`,
   };
 }
 

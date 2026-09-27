@@ -2727,8 +2727,8 @@
       "id": "EXISTING_REGRESSION_SUITE",
       "expected": "All embedded regression cases should pass.",
       "observed": {
-        "passed": 238,
-        "total": 238,
+        "passed": 240,
+        "total": 240,
         "failures": []
       }
     }

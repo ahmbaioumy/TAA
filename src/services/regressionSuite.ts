@@ -6785,29 +6785,36 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     const rNone = run([]);                                                                          // (c) nothing recorded
     const rOtherStart = run([seg('LATE', '07:05', '07:14', 9), seg('COVER', '15:00', '15:09', 9)]); // (d) LATE start differs
     const rBareCover = run([seg('COVER', '15:00', '15:09', 9)]);                                    // (e) COVER without LATE
+    const rOtherMins = run([seg('LATE', '07:00', '07:07', 7)]);                                     // (f) LATE minutes differ (7m vs 9m)
+    const prevDay = '26/08/2026';
+    const rOtherDay = run([{ ...seg('LATE', '07:00', '07:09', 9), NOM_DATE: prevDay, START_DATE: prevDay, START_MOMENT: `${prevDay} 07:00:00`, STOP_MOMENT: `${prevDay} 07:09:00` }]); // (g) LATE on another day
 
     const has = (r: ReturnType<typeof run>, c: string) => r.details.generatedCorrections.some(x => x.SegmentCode === c);
+    const noneAtAll = (r: ReturnType<typeof run>) => r.details.generatedCorrections.length === 0 && r.TAA_ACTION === 'NO_ACTION' && r.TAA_VERDICT === 'LATE'
+      && (r.details.ruleFired ?? '').includes('already actioned');
     const checks: [string, boolean][] = [
-      ['a: LATE+COVER recorded -> neither re-emitted, note in ruleFired', !has(rBoth, 'LATE') && !has(rBoth, 'COVER') && (rBoth.details.ruleFired ?? '').includes('already recorded in ASPECT')],
-      ['b: LATE only recorded -> LATE skipped, COVER still emitted', !has(rLateOnly, 'LATE') && has(rLateOnly, 'COVER')],
-      ['c: nothing recorded -> LATE + COVER emitted (unchanged)', has(rNone, 'LATE') && has(rNone, 'COVER')],
-      ['d: recorded LATE has a different start -> not a match, LATE emitted', has(rOtherStart, 'LATE')],
+      ['a: LATE+COVER recorded -> no correction, NO_ACTION, verdict LATE, trace says already actioned', noneAtAll(rBoth)],
+      ['b: LATE only recorded -> no LATE and NO COVER (already-actioned rule, 2026-09-27)', noneAtAll(rLateOnly)],
+      ['c: nothing recorded -> LATE + COVER emitted (unchanged)', has(rNone, 'LATE') && has(rNone, 'COVER') && rNone.TAA_ACTION === 'LATE_AND_COVER'],
+      ['d: recorded LATE with a different start -> still already actioned', noneAtAll(rOtherStart)],
       ['e: bare COVER never suppresses -> LATE + COVER emitted', has(rBareCover, 'LATE') && has(rBareCover, 'COVER')],
+      ['f: recorded LATE with different minutes (7m vs 9m) -> no second LATE, no COVER', noneAtAll(rOtherMins)],
+      ['g: LATE recorded on a different day -> this day still gets LATE + COVER', has(rOtherDay, 'LATE') && has(rOtherDay, 'COVER')],
     ];
     const passed = checks.every(([, ok]) => ok);
 
     results.push({
       id: 'reg-142',
-      name: 'Already-Recorded LATE/COVER Is Not Re-Emitted on a Re-Run (Idempotency Guard)',
-      category: 'Re-run idempotency (2026-09-21)',
-      inputDescription: `${incidentDay}: 9m late login, agent stays to 15:09 so a recorded 15:00-15:09 cover is attended; ASPECT export variants: (a) LATE+COVER already present, (b) LATE only, (c) none, (d) LATE with a different start, (e) COVER only; toggles pinned`,
-      cognosFlawedVerdict: 'N/A — Saba PF 40121246 showed the double charge: ASPECT held LATE 08:30-08:37 + COVER 16:30-16:37 and the re-run emitted both again',
-      expectedVerdict: 'Exact match only: (a) neither emitted, (b) COVER only, (c)(d)(e) both emitted',
-      expectedAction: 'Marker skipped only on an exact code/day/start/duration match; the cover is skipped only when that marker AND an unclaimed same-length COVER are recorded',
-      actualVerdict: `a=${codes(rBoth)}; b=${codes(rLateOnly)}; c=${codes(rNone)}; d=${codes(rOtherStart)}; e=${codes(rBareCover)}`,
+      name: 'LATE Already In ASPECT For The Day = Already Actioned: No LATE, No COVER',
+      category: 'Re-run idempotency (2026-09-21; already-actioned rule 2026-09-27)',
+      inputDescription: `${incidentDay}: 9m late login, agent stays to 15:09; ASPECT export variants: (a) LATE+COVER already present, (b) LATE only, (c) none, (d) LATE with a different start, (e) COVER only, (f) LATE 7m (TAA measures 9m), (g) LATE on the previous day; toggles pinned`,
+      cognosFlawedVerdict: 'N/A — Saba PF 40121246 showed the double charge; the 2026-09-27 business rule goes further: once a LATE exists for the day, TAA must not add a COVER either, and a LATE of different minutes must never get a second LATE',
+      expectedVerdict: 'Any LATE on the incident day: no correction at all (a)(b)(d)(f), action NO_ACTION, verdict LATE; (c)(e)(g) LATE + COVER emitted',
+      expectedAction: 'NO_ACTION when already actioned; LATE_AND_COVER otherwise',
+      actualVerdict: `a=${codes(rBoth)}; b=${codes(rLateOnly)}; c=${codes(rNone)}; d=${codes(rOtherStart)}; e=${codes(rBareCover)}; f=${codes(rOtherMins)}; g=${codes(rOtherDay)}`,
       actualAction: rBoth.TAA_ACTION,
       passed,
-      payrollImpact: 'Without the guard every re-run over an already-corrected ASPECT export charges the same late minutes and the same cover a second time',
+      payrollImpact: 'Stops TAA adding a COVER (or a second LATE) for a late arrival ASPECT already carries — the incident was actioned outside TAA',
       calculationTrace: checks.map(([label, ok]) => `${ok ? 'PASS' : 'FAIL'} ${label}`),
     });
   }
@@ -6838,18 +6845,21 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     const rFresh = run([]);
     const rRecorded = run([seg('Log_off', '14:53', '15:00', 7), seg('COVER', '06:53', '07:00', 7)]);
     const has = (r: ReturnType<typeof run>, c: string) => r.details.generatedCorrections.some(x => x.SegmentCode === c);
-    const passed = has(rFresh, 'Log_off') && has(rFresh, 'COVER')
-      && !has(rRecorded, 'Log_off') && !has(rRecorded, 'COVER') && (rRecorded.details.ruleFired ?? '').includes('already recorded in ASPECT');
+    // Already-actioned rule (2026-09-27): a Log_off of ANY minutes on the day means no Log_off and no COVER.
+    const rLogoffOnly = run([seg('Log_off', '14:50', '15:00', 10)]);
+    const noneAtAll = (r: ReturnType<typeof run>) => r.details.generatedCorrections.length === 0 && r.TAA_ACTION === 'NO_ACTION'
+      && r.TAA_VERDICT === 'EARLY_LOGOUT' && (r.details.ruleFired ?? '').includes('already actioned');
+    const passed = has(rFresh, 'Log_off') && has(rFresh, 'COVER') && noneAtAll(rRecorded) && noneAtAll(rLogoffOnly);
 
     results.push({
       id: 'reg-143',
-      name: 'Already-Recorded Log_off/COVER Is Not Re-Emitted on a Re-Run (Early Logout Path)',
+      name: 'Log_off Already In ASPECT For The Day = Already Actioned: No Log_off, No COVER (Early Logout Path)',
       category: 'Re-run idempotency (2026-09-21)',
       inputDescription: `${incidentDay}: login 06:50, 7m early logout (14:53); fresh export vs export already holding Log_off 14:53 (7m) + COVER 06:53-07:00 (7m, attended); toggles pinned`,
       cognosFlawedVerdict: 'N/A — mirror of reg-142 for the LOGOFF_AND_COVER rule',
-      expectedVerdict: 'Fresh: Log_off + COVER emitted. Already recorded: neither re-emitted, note in ruleFired',
-      expectedAction: 'LOGOFF_AND_COVER finding kept, corrections not duplicated',
-      actualVerdict: `fresh=${rFresh.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}; recorded=${rRecorded.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}`,
+      expectedVerdict: 'Fresh: Log_off + COVER emitted. Log_off already in ASPECT (exact, or a different 10m one): no correction, verdict EARLY_LOGOUT, action NO_ACTION',
+      expectedAction: 'NO_ACTION when already actioned',
+      actualVerdict: `fresh=${rFresh.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}; recorded=${rRecorded.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}; logoffOnly10m=${rLogoffOnly.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}`,
       actualAction: rRecorded.TAA_ACTION,
       passed,
       payrollImpact: 'Prevents a second Log_off and second cover for an early logout that ASPECT already carries',
@@ -8549,6 +8559,83 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       passed: statusOf(r186, 'SCH DURATION') === 'MISMATCH' && r186.holdReason === 'MISMATCH_FOUND',
       payrollImpact: 'Keeps the pre-existing late-make-up exclusion for every gap that is not the whole COVER',
       calculationTrace: ['gap 30m != COVER 40m -> explainedByLateMakeUp still excludes Gate B'],
+    });
+  }
+
+  // ===== Already-actioned rule (business decision 2026-09-27) — reg-187, reg-188 =====
+  {
+    // reg-187: flex over-cutoff path. Same fixture as reg-8 (flex 07:00 roster, arrives 10:01,
+    // 1m past the 10:00 cutoff) plus a LATE ASPECT already holds for that day.
+    const pf = '455887';
+    const cognos: CognosRecord = {
+      'SIGN IN DATE': '2026-08-28 00:00:00', SECTION: 'ECS', 'PF NO': pf, NAME: 'Flex Already Actioned', 'LOGIN ID': '10087',
+      DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '07:59',
+      'SIGIN IN': '10:01', 'SIGIN OUT': '18:01', 'LATE START': '-181', 'LEFT EARLY': '0', 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+    };
+    const baseSegs: AspectSegment[] = [
+      { EMP_ID: pf, NOM_DATE: '28/08/2026', START_DATE: '28/08/2026', SEG_CODE: 'SHIFT', START_MOMENT: '28/08/2026 07:00:00', STOP_MOMENT: '28/08/2026 15:00:00', DURATION: 480 },
+      { EMP_ID: pf, NOM_DATE: '29/08/2026', START_DATE: '29/08/2026', SEG_CODE: 'SHIFT', START_MOMENT: '29/08/2026 07:00:00', STOP_MOMENT: '29/08/2026 15:00:00', DURATION: 480 },
+    ];
+    const lateSeg: AspectSegment = { EMP_ID: pf, NOM_DATE: '28/08/2026', START_DATE: '28/08/2026', SEG_CODE: 'LATE', START_MOMENT: '28/08/2026 10:00:00', STOP_MOMENT: '28/08/2026 10:01:00', DURATION: 1 };
+    const identities: AspectIdentity[] = [{ EMP_ID: pf, EMP_LAST_NAME: 'Flex Already Actioned', EMP_SORT_NAME: 'FLEX ALREADY ACTIONED - FELX' }];
+    const punches: CMSPunch[] = [
+      { Date: '28/08/2026', LoginID: '10087', LoginDateTime: makeDt('28/08/2026', '10:01:00'), LogoutDateTime: makeDt('28/08/2026', '10:01:03') },
+      { Date: '28/08/2026', LoginID: '10087', LoginDateTime: makeDt('28/08/2026', '18:00:57'), LogoutDateTime: makeDt('28/08/2026', '18:01:00') },
+    ];
+    const run = (segs: AspectSegment[]) => runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config }).rows[0];
+    const fresh = run(baseSegs);
+    const recorded = run([...baseSegs, lateSeg]);
+    const codesOf = (r: ReturnType<typeof run>) => r.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none';
+    const hasCode = (r: ReturnType<typeof run>, c: string) => r.details.generatedCorrections.some(x => x.SegmentCode === c);
+    const passed = fresh.TAA_ACTION === 'SHIFT_UPDATE_AND_LATE_COVER_FLEX' && hasCode(fresh, 'LATE') && hasCode(fresh, 'COVER')
+      && recorded.TAA_ACTION === 'SHIFT_UPDATE_FLEX' && !hasCode(recorded, 'LATE') && !hasCode(recorded, 'COVER')
+      && recorded.details.generatedCorrections.length === 2 && (recorded.details.ruleFired ?? '').includes('already actioned');
+    results.push({
+      id: 'reg-187', name: 'Flex Past Cutoff With LATE Already In ASPECT: Shift Update Only, No LATE, No COVER', category: 'Already-actioned rule (2026-09-27)',
+      inputDescription: 'Flex 07:00 roster, arrives 10:01 (1m past cutoff); fresh vs ASPECT already holding LATE 10:00 1m',
+      cognosFlawedVerdict: 'N/A — business rule: a LATE already in ASPECT means no further action from TAA',
+      expectedVerdict: 'Fresh: shift pair + LATE + COVER. Recorded: only the 10/11 shift-update pair, action SHIFT_UPDATE_FLEX',
+      expectedAction: 'SHIFT_UPDATE_FLEX',
+      actualVerdict: `fresh=${codesOf(fresh)} (${fresh.TAA_ACTION}); recorded=${codesOf(recorded)} (${recorded.TAA_ACTION})`,
+      actualAction: recorded.TAA_ACTION,
+      passed,
+      payrollImpact: 'No duplicate LATE and no extra COVER for a flex late arrival that ASPECT already carries',
+      calculationTrace: [`recorded ruleFired: ${recorded.details.ruleFired}`],
+    });
+  }
+  {
+    // reg-188: the rule never touches the ABSENT band — a 70m late login with a LATE already in
+    // ASPECT is still ABSENT (only the LATE_AND_COVER outcome is "already actioned").
+    const pf = '600188';
+    const day = '27/08/2026';
+    const cognos: CognosRecord = {
+      'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'ECS', 'PF NO': pf, NAME: 'Absent Band Agent', 'LOGIN ID': '60188',
+      DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '6:50',
+      'SIGIN IN': '08:10', 'SIGIN OUT': '15:00', 'LATE START': '-70', 'LEFT EARLY': '0', 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+    };
+    const segs: AspectSegment[] = [
+      { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 07:00:00`, STOP_MOMENT: `${day} 15:00:00`, DURATION: 480 },
+      { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'LATE', START_MOMENT: `${day} 07:00:00`, STOP_MOMENT: `${day} 08:10:00`, DURATION: 70 },
+    ];
+    const punches: CMSPunch[] = [
+      { Date: day, LoginID: '60188', LoginDateTime: makeDt(day, '08:10:00'), LogoutDateTime: makeDt(day, '08:10:03') },
+      { Date: day, LoginID: '60188', LoginDateTime: makeDt(day, '15:00:00'), LogoutDateTime: makeDt(day, '15:00:03') },
+      { Date: day, LoginID: 'sentinel-export-open', LoginDateTime: makeDt(day, '23:30:00'), LogoutDateTime: makeDt(day, '23:30:03') },
+    ];
+    const row = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs,
+      aspectIdentities: [{ EMP_ID: pf, EMP_LAST_NAME: 'Absent Band Agent', EMP_SORT_NAME: 'ABSENT BAND AGENT' }], cmsPunches: punches, config }).rows[0];
+    const passed = row.TAA_ACTION === 'ABSENT_SEGMENT' && row.details.generatedCorrections.some(c => c.SegmentCode === 'ABSENT');
+    results.push({
+      id: 'reg-188', name: 'LATE Already In ASPECT Does Not Soften The ABSENT Band (70m Late Stays ABSENT)', category: 'Already-actioned rule (2026-09-27)',
+      inputDescription: 'OPS SHIFT 07:00-15:00, login 08:10 (70m), ASPECT already holds LATE 07:00-08:10',
+      cognosFlawedVerdict: 'N/A — boundary of the already-actioned rule',
+      expectedVerdict: 'ABSENT (61m+ band) — the rule only applies to LATE_AND_COVER outcomes',
+      expectedAction: 'ABSENT_SEGMENT',
+      actualVerdict: `${row.TAA_VERDICT}; corrections=${row.details.generatedCorrections.map(c => c.SegmentCode).join(',') || 'none'}`,
+      actualAction: row.TAA_ACTION,
+      passed,
+      payrollImpact: 'A recorded LATE can never downgrade an absence the policy requires',
+      calculationTrace: [`ruleFired: ${row.details.ruleFired}`],
     });
   }
 

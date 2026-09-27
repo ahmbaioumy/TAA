@@ -1471,6 +1471,17 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
 (glossary gaps — a business classification decision, not a calculation), 32 `MISMATCH_FOUND`
 (mostly non-flex LATE_EARLY / SCHEDULE disagreements with pay-affecting actions).
 
+## 7r. Already-actioned LATE / Log_off, wrong-basis release, off-grid RLS (2026-09-27)
+
+1. **Already-actioned rule (business decision).** A LATE (or Log_off) already in ASPECT on the
+   incident's NOM day means TAA takes no further action for that finding: no marker, no COVER
+   (`findAlreadyRecordedIncident`, now a day-level code match). Before: an exact start+duration
+   match skipped only the marker and still added the COVER; a LATE of different minutes (8m vs
+   TAA 10m) exported a *second* LATE plus a COVER. Row: verdict kept, `TAA_ACTION = NO_ACTION`
+   (flex: `SHIFT_UPDATE_FLEX`, shift pair only), no charged variance, trace names both figures.
+   ABSENT band untouched. Side effect: a held row of this shape now falls in the `NO_ACTION`
+   Hold Policy action group. `reg-142`/`reg-143` rewritten, `reg-187`/`reg-188` added.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):
