@@ -13,6 +13,7 @@ import {
 import { ConfigRegistry, PolicyRuleItem, RoleTier, TaaActionCode, CommunicationRule, CognosDropRule, EmailTemplateKey, SectionMailboxRule, EmployeeManagerRule } from '../types/taa';
 import { resetConfigRegistry, validatePolicyBands, parseSectionMailboxCsv, exportSectionMailboxCsv, parseEmployeeManagerCsv, exportEmployeeManagerCsv, validateConfigForRun, implementedActionsForSegmentType, effectiveCmsCoverageGraceMinutes } from '../services/configRegistry';
 import { decodeFileBuffer } from '../services/parsers';
+import { EmailZipSettings } from './EmailZipSettings';
 import { DEFAULT_EMAIL_TEMPLATES, EMAIL_TEMPLATE_KEYS, EMAIL_TEMPLATE_LABELS, EMAIL_TEMPLATE_PLACEHOLDERS_BY_KEY } from '../services/emailDrafts';
 import { BandIssuesModal } from './BandIssuesModal';
 
@@ -1421,6 +1422,12 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
                 className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs shadow-2xs focus:outline-none focus:border-sky-500"
               />
             </label>
+
+            <EmailZipSettings
+              enabled={localConfig.emailZipEnabled}
+              threshold={localConfig.emailZipThreshold}
+              onChange={(next) => setLocalConfig(prev => ({ ...prev, ...next }))}
+            />
 
             <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
               <table className="w-full text-left text-xs">

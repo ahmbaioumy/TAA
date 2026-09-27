@@ -1217,6 +1217,26 @@ directly in the Downloads folder, with a numeric suffix on collision within one 
 limit, unlike a `mailto:` link (which breaks past ~2,000 characters — real OPS digests run
 5,000–20,000).
 
+**Multi-draft batches download as ONE `.zip` (2026-09-27).** A burst of automatic downloads
+trips the browser's "This site is trying to download multiple files — Allow?" prompt from the
+2nd file on, which operators read as suspicious and which can silently block drafts. Two Email
+Config settings (Email Config wizard and Config Registry → 5. Email Drafts, shared
+`EmailZipSettings` component) control this:
+- `emailZipEnabled` (default **ON**) — when ON and a batch (Bulk Draft, or a row's "draft all")
+  has at least `emailZipThreshold` drafts, the browser downloads a single
+  `TAA_Email_Drafts_<DDMMYYYY>_<N>.zip` holding the exact same `.eml` files (same names, byte for
+  byte) a separate download would have produced. The operator extracts it (right-click → Extract
+  All) and double-clicks each `.eml`. OFF = always separate `.eml` downloads, whatever the count.
+- `emailZipThreshold` (default **2**, whole number ≥ 1) — the minimum batch size that bundles.
+  Below it, drafts download as separate staggered `.eml` files as before.
+
+The zip uses the same dependency-free "stored" ZIP writer as the `.xlsx` export
+(`services/zipWriter.ts`). **RAR is not offered:** it is a proprietary format with no
+browser-side writer, and Windows can't open it without WinRAR/7-Zip, whereas `.zip` opens natively.
+A row's "draft all" now resolves every action (including the per-action EMAIL_OPS override
+confirmation) and launches them as ONE batch, so it shares the bundling and the status banner
+reports the whole batch.
+
 `RunEmailDraftRequest` and its request/status-file-only helpers (`TAA_ConsumeRequestFile`,
 `TAA_WriteEmailStatus`, `TAA_IsSafeEmailFileName`, `TAA_IsSafeRequestId`, `TAA_EmailFolderPath`)
 were deleted from `TAA_VBA_Companion.bas`. `TAA_CMS_Automation/TAA_Email_Launcher.vbs` and

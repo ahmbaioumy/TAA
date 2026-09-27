@@ -1,4 +1,5 @@
 import { EmailActionItem } from '../types/taa';
+import { buildZip } from './zipWriter';
 
 // Builds a downloadable .eml file that Outlook opens as a complete, editable,
 // UNSENT draft (X-Unsent: 1) — the entire point of this module. Nothing here
@@ -131,4 +132,36 @@ export function buildUniqueEmlFileNames(actions: EmailActionItem[]): string[] {
     if (count === 1) return base;
     return base.replace(/\.eml$/, `_${count}.eml`);
   });
+}
+
+// The one addressing rule every draft download uses: a pooled OPS digest goes
+// to its Section mailbox; everything else to its resolved `to`, which is blank
+// when no recipient could be resolved (the draft still downloads, flagged).
+export function resolveEmlRecipient(action: EmailActionItem): string {
+  return action.ops_mailbox || action.to || '';
+}
+
+export function buildEmlForAction(action: EmailActionItem): string {
+  return buildEmlFile({ to: resolveEmlRecipient(action), cc: action.cc, subject: action.subject, body: action.body });
+}
+
+// Whether a batch of `count` drafts downloads as ONE .zip instead of `count`
+// separate .eml downloads (config.emailZipEnabled / emailZipThreshold). A
+// burst of automatic downloads trips the browser's "download multiple files"
+// prompt from the 2nd file on, which operators read as suspicious.
+export function shouldBundleEmlZip(count: number, enabled: boolean, threshold: number): boolean {
+  return enabled && count > 0 && count >= Math.max(1, threshold);
+}
+
+// One stored-method .zip holding each action's .eml, under the same unique
+// file names a separate download would use.
+export function buildEmlZip(actions: EmailActionItem[]): Uint8Array {
+  const encoder = new TextEncoder();
+  const names = buildUniqueEmlFileNames(actions);
+  return buildZip(actions.map((action, i) => ({ name: names[i], data: encoder.encode(buildEmlForAction(action)) })));
+}
+
+// TAA_Email_Drafts_<stamp>_<N>.zip — the stamp is the caller's run date stamp.
+export function buildEmlZipFileName(stamp: string, count: number): string {
+  return `TAA_Email_Drafts_${stamp}_${count}.zip`;
 }

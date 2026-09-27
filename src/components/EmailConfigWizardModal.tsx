@@ -8,8 +8,9 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
   normalizeEmailTemplates,
 } from '../services/emailDrafts';
-import { normalizeSectionMailboxMap, parseSectionMailboxCsv, normalizeEmployeeManagerMap, parseEmployeeManagerCsv } from '../services/configRegistry';
+import { normalizeEmailZipEnabled, normalizeEmailZipThreshold, normalizeSectionMailboxMap, parseSectionMailboxCsv, normalizeEmployeeManagerMap, parseEmployeeManagerCsv } from '../services/configRegistry';
 import { decodeFileBuffer } from '../services/parsers';
+import { EmailZipSettings } from './EmailZipSettings';
 
 // A Section is duplicated when two rows normalize to the same key (trimmed,
 // case-insensitive) — see poolEmailOpsActionsBySection in emailDrafts.ts,
@@ -185,6 +186,8 @@ export function EmailConfigWizardModal({ isOpen, onClose, config, onSaveConfig }
       ...draft,
       sectionMailboxMap: normalizeSectionMailboxMap(draft.sectionMailboxMap),
       defaultOpsMailbox: draft.defaultOpsMailbox.trim(),
+      emailZipEnabled: normalizeEmailZipEnabled(draft.emailZipEnabled),
+      emailZipThreshold: normalizeEmailZipThreshold(draft.emailZipThreshold),
       employeeManagerMap: normalizeEmployeeManagerMap(draft.employeeManagerMap),
     });
     onClose();
@@ -270,6 +273,12 @@ export function EmailConfigWizardModal({ isOpen, onClose, config, onSaveConfig }
                   className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs shadow-2xs focus:outline-none focus:border-sky-500"
                 />
               </label>
+
+              <EmailZipSettings
+                enabled={draft.emailZipEnabled}
+                threshold={draft.emailZipThreshold}
+                onChange={(next) => setDraft(prev => ({ ...prev, ...next }))}
+              />
 
               <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
                 <table className="w-full text-left text-xs">

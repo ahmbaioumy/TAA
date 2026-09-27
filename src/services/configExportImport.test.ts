@@ -94,6 +94,8 @@ const ALL_CONFIG_KEYS: Record<keyof ConfigRegistry, true> = {
   cognosDropPatterns: true,
   sectionMailboxMap: true,
   defaultOpsMailbox: true,
+  emailZipEnabled: true,
+  emailZipThreshold: true,
   employeeManagerMap: true,
   emailCorporateDomains: true,
   emailTemplates: true,
@@ -207,6 +209,9 @@ const mutated: ConfigRegistry = {
   cognosDropPatterns: [{ column: 'CUSTOM_COLUMN', values: ['CUSTOM*'] }],
   sectionMailboxMap: [{ section: 'CUSTOMSECTION', mailbox: 'custom@example.test' }],
   defaultOpsMailbox: 'custom-default-ops@example.test',
+  // Both deliberately off their defaults (true / 2) so the round-trip proves they survive.
+  emailZipEnabled: false,
+  emailZipThreshold: 5,
   employeeManagerMap: [{ empId: 'EMP999', managerEmail: 'manager999@example.test' }],
   emailCorporateDomains: ['custom-domain.test'],
   emailTemplates: {

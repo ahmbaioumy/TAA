@@ -679,6 +679,14 @@ export interface ConfigRegistry {
   // never the employee. Blank = no fallback: unmapped Sections are HELD.
   defaultOpsMailbox: string;
 
+  // Bulk/multi-row drafting: when ON and a batch has at least
+  // emailZipThreshold drafts, they download as ONE .zip of .eml files instead
+  // of N separate downloads — a burst of automatic downloads trips the
+  // browser's "download multiple files" prompt from the 2nd file on. OFF
+  // always downloads separate .eml files regardless of count.
+  emailZipEnabled: boolean;
+  emailZipThreshold: number;
+
   // Optional employee -> manager mailbox map (§4.7 CC), uploaded via CSV in
   // the Config Registry / Email Config Wizard. No entry for an employee simply
   // means the draft opens with no CC — never an error, never a block.
