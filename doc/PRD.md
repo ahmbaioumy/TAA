@@ -1212,7 +1212,10 @@ GAL-verified address resolution; §4.7 below covers how that trade-off is handle
 
 `services/emlBuilder.ts` builds the file (RFC 2047 subject encoding for non-ASCII text such as
 the em dash every template uses, base64 body, CRLF throughout). Filenames are
-`Action_PFxxxx_DDMMYYYY.eml` (or `Action_SECTION_DDMMYYYY.eml` for a pooled OPS digest) — readable
+`Action_PFxxxx_StaffName_username_SECTION_DDMMYYYY.eml` (or `Action_SECTION_DDMMYYYY.eml` for a
+pooled OPS digest) — so an operator drafting hundreds of emails can identify the full case (who,
+which section, what, when) from the filename alone. A blank staff name / username / section is
+omitted rather than written as `UNKNOWN`; the staff name is capped at 40 characters. Readable
 directly in the Downloads folder, with a numeric suffix on collision within one batch. No size
 limit, unlike a `mailto:` link (which breaks past ~2,000 characters — real OPS digests run
 5,000–20,000).

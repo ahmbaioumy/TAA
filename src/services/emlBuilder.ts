@@ -106,17 +106,40 @@ function sanitizeForFileName(value: string): string {
     .replace(/^-+|-+$/g, '') || 'UNKNOWN';
 }
 
-// Action_PFxxxx_DDMMYYYY.eml (or Action_SECTION_DDMMYYYY.eml for a pooled OPS
-// digest, which has no single employee). This is the user-facing identifier —
-// how a person tells drafts apart in their Downloads folder — so it carries
-// the case, the person (or section), and the date, never an opaque id.
+// Same sanitizing as above, but a blank value yields '' (so the caller drops
+// the part entirely) instead of 'UNKNOWN', optionally capped at `maxLen`
+// characters so one long field can't push the extracted path past Windows'
+// 260-character limit.
+function optionalFileNamePart(value: string, maxLen?: number): string {
+  const cleaned = (value || '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!maxLen || cleaned.length <= maxLen) return cleaned;
+  return cleaned.slice(0, maxLen).replace(/-+$/, '');
+}
+
+const MAX_STAFF_NAME_IN_FILE_NAME = 40;
+
+// Action_PFxxxx_StaffName_username_SECTION_DDMMYYYY.eml (or
+// Action_SECTION_DDMMYYYY.eml for a pooled OPS digest, which has no single
+// employee). This is the user-facing identifier — how a person tells hundreds
+// of drafts apart in their Downloads folder — so it carries the case, the
+// person (PF, name, username), their section, and the date, never an opaque
+// id. A blank name/username/section is omitted rather than written as
+// UNKNOWN; PF and date keep their UNKNOWN fallback.
 export function buildEmlFileName(action: EmailActionItem): string {
   const actionLabel = ACTION_LABEL_BY_TEMPLATE_KEY[action.template_key] || 'Notice';
-  const isDigest = action.template_key === 'ops_digest';
-  const subject = isDigest
-    ? sanitizeForFileName(action.section || action.name)
-    : `PF${sanitizeForFileName(action.emp_id)}`;
-  return `${actionLabel}_${subject}_${compactDate(action.nominate_date)}.eml`;
+  const date = compactDate(action.nominate_date);
+  if (action.template_key === 'ops_digest') {
+    return `${actionLabel}_${sanitizeForFileName(action.section || action.name)}_${date}.eml`;
+  }
+  const parts = [
+    actionLabel,
+    `PF${sanitizeForFileName(action.emp_id)}`,
+    optionalFileNamePart(action.name, MAX_STAFF_NAME_IN_FILE_NAME),
+    optionalFileNamePart(action.resolved_username),
+    optionalFileNamePart(action.section),
+    date,
+  ].filter(part => part.length > 0);
+  return `${parts.join('_')}.eml`;
 }
 
 // Collisions (same action/person/date drafted twice in one batch) get a
