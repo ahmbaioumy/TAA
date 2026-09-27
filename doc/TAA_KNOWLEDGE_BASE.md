@@ -1456,6 +1456,15 @@ early/correction diffs across all 406 rows, 0 newly held.
    (Late Logout / Cover Not Attended with vs without the gap) must still pass. Partial gaps keep
    the old exclusion (`reg-186`).
 
+With the user's real `Config.json` (drops `UAE*` PFs → 218 rows, classifies every code above,
+pre-releases every `*|MISMATCH_FOUND:*|NO_ACTION` combination): held **41 → 21**, **0**
+calculation diffs, 0 newly held; released 20 = ABSENT_SEGMENT 9, SHIFT_UPDATE_FLEX 4,
+LOGOFF_AND_COVER 4, LATE_AND_COVER 3 (all FLEX roster or whole-COVER rows). Of the 12
+`MISMATCH_FOUND` left, 4 (PF 4500647, 4506601, 4507179, 4500116) show Cognos SCH DURATION exactly
+60m BELOW ASPECT with no release segment in ASPECT, and TAA marks each ABSENT for a 50-60m early
+logout — if Cognos's shorter day is right the absence is wrong, so these are genuine pay-affecting
+disagreements and correctly stay held (likely a release/permission recorded outside ASPECT).
+
 Tests: `reg-180`..`reg-186` (positive + negative twins, kill switch); suite 231 → 238.
 `scheduleRecomputeBlocks.test.ts` note assertion updated for the whole-COVER wording, plus a
 partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_SEGMENT_CODE`
