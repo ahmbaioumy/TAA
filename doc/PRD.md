@@ -554,6 +554,21 @@ automatically but does not auto-export it:
 
 ---
 
+### 4.6f Absence Already Recorded (2026-09-18; branch (b) changed 2026-09-27)
+When the day's ASPECT segments already carry an `existingAbsenceMarkerCodes` segment
+(`ABSENT` / `Absent NS/NC`), the day is already actioned. TAA writes no second marker and
+drafts no notice, whatever CMS shows:
+- (a) CMS span < `leaveLoginThresholdMinutes` → `ABSENCE_ALREADY_RECORDED` / `NO_ACTION`.
+- (b) CMS span ≥ `leaveLoginThresholdMinutes` → `ABSENCE_CONTRADICTED_BY_CMS` / `NO_ACTION`,
+  **not held** (business decision 2026-09-27: there is no action for TAA to take). This was
+  previously a forced `ABSENT_MARKED_BUT_ATTENDED` hold that no Hold Policy setting could release.
+  The distinct verdict and the trace keep the CMS attendance visible. TAA still never
+  auto-reverses a recorded absence. `ABSENT_MARKED_BUT_ATTENDED` stays in the type,
+  `HOLD_REASON_TEXT` and `FORCED_HOLD_REASONS` only so saved results still render. It is no
+  longer emitted. `reg-127`, `reg-128`, `reg-129`, `reg-130`.
+
+---
+
 ### 4.7 Outlook Mailbox & Manager Resolution Architecture
 
 **Primary path (2026-09-08): resolved entirely in the browser, no Exchange lookup.** Since the
