@@ -1534,6 +1534,19 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    holds a same-day cover (credited against proven attendance) is left exactly as placed.
    `reg-191`.
 
+6. **CMS row state, one resolver (GPT D / Astra P5).** `validateCmsFile` and `parseCmsPunches`
+   now share `resolveCmsRow`. Before: EITHER logout field blank/"0" meant "still clocked in", so
+   a closed row with only its optional full datetime blank became an open punch (a false
+   `STILL_CLOCKED_IN` forced hold), and the parser read both full timestamps only when BOTH were
+   present, so one blank field silently dropped the other's seconds. Now each timestamp resolves
+   on its own (full column if populated, else Date + time, next day when before the login —
+   "00:00" is a time, never a sentinel); open only when BOTH logout fields are blank/"0"; a "0"
+   beside a populated logout is rejected as contradictory. Zero native rows are affected in the
+   supplied exports (fail-safe direction either way). CMS de-duplication is deliberately
+   unchanged: "closed snapshot supersedes open" was not adopted — the real 24/09 export's
+   zero-duration closed/open pairs (e.g. Login IDs 72849/72884/72900, per Astra; verify locally)
+   make it unsafe. Tests: `auditFixes.test.ts` CMS block (derived from Login ID 52854).
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

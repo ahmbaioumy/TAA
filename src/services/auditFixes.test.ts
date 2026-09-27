@@ -8,7 +8,7 @@ import { simulateScenario } from './scenarioGuide';
 import { isForcedHoldReason } from './holdReasons';
 import { assessHeadcountMapping } from './punchAttribution';
 import { AspectSegment, AspectIdentity, CMSPunch, CognosRecord, ColumnComparison, ConfigRegistry, PolicyRuleItem, RoleTier } from '../types/taa';
-import { parseDateTimeString } from './parsers';
+import { parseDateTimeString, parseCmsPunches, validateCmsFile } from './parsers';
 import { compareCognosRow, ComparisonContext } from './cognosComparison';
 
 // -----------------------------------------------------------------------
@@ -1053,6 +1053,47 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     const trnCognos = { 'LEAVE TYPE': 'TRN New Hires', 'SIGNIN DURATION': '00:00', 'SIGIN IN': '', 'SIGIN OUT': '', 'SCH DURATION': '8:0' };
     const out = run(trnSegments, [], trnCognos, undefined, trnConfig);
     assert.equal(out.rows[0].holdReason, 'FULL_DAY_REMOVAL_ON_SCHEDULED_DAY', 'kill switch off: no-attendance all-agree gate must not fire, row held as before Phase 5');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CMS logout state (2026-09-27, GPT D / Astra P5): validateCmsFile and parseCmsPunches share one
+// row resolver. Fixtures are DERIVED from the real CMS_23092026.csv row for Login ID 52854
+// (login 23/09/2026 15:03:35, logout 15:04 / 15:04:55) by changing one field each.
+// ---------------------------------------------------------------------------
+{
+  const hdr = 'CMS Login Logout Report\nGenerated,x\nDate,Login ID,Login Time,Logout Time,Login Time,Logout Time\n';
+  const filler = '23/09/2026,11111,08:00,16:00,23/09/2026 08:00:00,23/09/2026 16:00:00\n';
+  const file = (row: string) => `${hdr}${filler}${row}\n`;
+  const punchOf = (content: string) => parseCmsPunches(content).find(p => p.LoginID === '52854');
+  const hms = (d: Date | null | undefined) => d ? `${String(d.getDate()).padStart(2, '0')} ${d.toTimeString().slice(0, 8)}` : 'open';
+  const expectRow = (label: string, row: string, login: string, logout: string) => {
+    const content = file(row);
+    const v = validateCmsFile(content, 'x.csv');
+    assert.ok(v.ok, `${label}: must validate`);
+    const fromValidator = v.ok ? v.punches.find(p => p.LoginID === '52854') : undefined;
+    const fromParser = punchOf(content);
+    for (const [who, p] of [['validator', fromValidator], ['parser', fromParser]] as const) {
+      assert.equal(hms(p?.LoginDateTime), login, `${label} (${who}): login`);
+      assert.equal(hms(p?.LogoutDateTime), logout, `${label} (${who}): logout`);
+      assert.equal(!!p?.stillClockedIn, logout === 'open', `${label} (${who}): open/closed state`);
+    }
+  };
+  expectRow('native row', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,23/09/2026 15:04:55', '23 15:03:35', '23 15:04:55');
+  expectRow('blank Logout Time (Full) -> closed, login keeps its seconds', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,', '23 15:03:35', '23 15:04:00');
+  expectRow('blank Logout Time -> closed from the full column', '23/09/2026,52854,15:03,,23/09/2026 15:03:35,23/09/2026 15:04:55', '23 15:03:35', '23 15:04:55');
+  expectRow('blank Login Time (Full) -> logout keeps its seconds', '23/09/2026,52854,15:03,15:04,,23/09/2026 15:04:55', '23 15:03:00', '23 15:04:55');
+  expectRow('both logout fields "0" -> open', '23/09/2026,52854,15:03,0,23/09/2026 15:03:35,0', '23 15:03:35', 'open');
+  expectRow('both logout fields blank -> open', '23/09/2026,52854,15:03,,23/09/2026 15:03:35,', '23 15:03:35', 'open');
+  expectRow('"00:00" is a next-day time, never the open sentinel', '23/09/2026,52854,22:00,00:00,23/09/2026 22:00:10,24/09/2026 00:00:40', '23 22:00:10', '24 00:00:40');
+  expectRow('cross-midnight time-only logout lands on the next day', '23/09/2026,52854,22:00,01:30,23/09/2026 22:00:10,', '23 22:00:10', '24 01:30:00');
+  for (const [label, row] of [
+    ['"0" Logout Time beside a full logout', '23/09/2026,52854,15:03,0,23/09/2026 15:03:35,23/09/2026 15:04:55'],
+    ['"0" Logout Time (Full) beside a time logout', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,0'],
+  ]) {
+    const v = validateCmsFile(file(row), 'x.csv');
+    assert.ok(!v.ok && /contradictory CMS logout/.test(v.reason), `${label}: must be rejected as contradictory`);
+    assert.equal(punchOf(file(row)), undefined, `${label}: parser must not guess a punch`);
   }
 }
 
