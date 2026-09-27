@@ -1299,7 +1299,7 @@ By default (`CMS_AGENTS_SOURCE = COGNOS_AUTO`, the new default), `RunCMSExport` 
 
 The Config panel must support:
 - **Export** the entire Config Registry to a JSON file (for backup, sharing between users/machines, or version-controlling a known-good ruleset).
-- **Import** it back.
+- **Import** it back. The imported file must pass `validateConfigForRun` or it is rejected with an alert listing the issues; a successful import must show a visible confirmation (a green "Config imported successfully from \"<file>\"" toast, auto-dismissing after ~3s) and refresh an already-open Config Registry tab so it shows the imported values — never a silent save.
 - **Reset to defaults**, restoring the shipped defaults — must be **explicitly confirmed** before firing (it destroys tuned rules), and the confirmation dialog should state what will be cleared. A granular option (reset rules only vs. reset everything including uploaded files/mappings) is recommended where cheap to implement, but a confirmed full reset is the minimum requirement.
 
 ### 6.6 Cognos Import — No Silent Drops, Drop Rules Are Config

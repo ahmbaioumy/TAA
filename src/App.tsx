@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { UploadZone } from './components/UploadZone';
@@ -624,6 +625,20 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  // App-level toast — the sidebar Import Config path otherwise saved silently
+  // on success (failures already alert()), leaving the user unsure it worked.
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 3000);
+  };
+  // Bumped on every successful import and used as ConfigRegistryView's key, so
+  // an already-open Config tab remounts from the imported config instead of
+  // keeping its stale local copy.
+  const [configImportNonce, setConfigImportNonce] = useState(0);
+
   const handleImportConfigFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -640,6 +655,8 @@ export default function App() {
           return;
         }
         handleSaveConfig(imported);
+        setConfigImportNonce(n => n + 1);
+        showToast(`Config imported successfully from "${file.name}"`);
       } catch (err) {
         alert(`Invalid config JSON file: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -692,6 +709,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex font-sans selection:bg-indigo-500 selection:text-white">
+      {/* Import Config success toast — above ConfigRegistryView's action cluster (z-40) and toast (z-50) */}
+      {toastMessage && (
+        <div role="status" aria-live="polite" className="fixed bottom-6 right-6 z-[60] bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center space-x-2 border border-emerald-400">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Left Sidebar — main workflow nav + Glossary/Config + config
           import/export/reset. Desktop only (lg+); mobile falls back to the
           <select> nav in Header. */}
@@ -1159,7 +1184,7 @@ export default function App() {
         )}
 
         {activeTab === 'config' && (
-          <ConfigRegistryView config={config} onSaveConfig={handleSaveConfig} onDirtyChange={setIsConfigDirty} />
+          <ConfigRegistryView key={configImportNonce} config={config} onSaveConfig={handleSaveConfig} onDirtyChange={setIsConfigDirty} />
         )}
 
         {activeTab === 'holdPolicy' && (
