@@ -83,6 +83,8 @@ const ALL_CONFIG_KEYS: Record<keyof ConfigRegistry, true> = {
   coverMinimumDaysAfterRunDate: true,
   technicalSegmentCodes: true,
   technicalSegmentToleranceMinutes: true,
+  releaseGridMinutes: true,
+  releaseGridCodes: true,
   releaseProvenSafeHolds: true,
   holdPolicy: true,
   aspectNormalActionCode: true,
@@ -186,6 +188,10 @@ const mutated: ConfigRegistry = {
   // config (WP5/B5/B15) survives export -> import, list and tolerance both.
   technicalSegmentCodes: ['CUSTOM_TECH'],
   technicalSegmentToleranceMinutes: 5,
+  // Deliberately off its 30 / RLS-family defaults — proves the release-grid flag's config
+  // (2026-09-27) survives export -> import.
+  releaseGridMinutes: 15,
+  releaseGridCodes: ['RLS', 'CUSTOM_RLS'],
   // Deliberately off its true default — proves the held-review-reduction kill switch
   // (Step 3, 2026-09-24) survives export -> import.
   releaseProvenSafeHolds: false,

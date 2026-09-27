@@ -1221,6 +1221,34 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
 
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
               <label className="block text-slate-800 font-semibold">
+                Release Grid (Minutes):
+              </label>
+              <input
+                type="number"
+                value={localConfig.releaseGridMinutes}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, releaseGridMinutes: parseInt(e.target.value, 10) || 0 }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <label className="block text-slate-800 font-semibold pt-1">
+                Release Grid Codes (Comma-Separated):
+              </label>
+              <input
+                type="text"
+                placeholder="RLS, RLS-2H, RLS-3H, UN_RLS, Cover_RLS"
+                value={localConfig.releaseGridCodes.join(', ')}
+                onChange={(e) => setLocalConfig(prev => ({
+                  ...prev,
+                  releaseGridCodes: e.target.value.split(',').map(s => s.trim()).filter(Boolean),
+                }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[11px] text-slate-500">
+                Releases are booked on this grid (30 = :00 or :30 only). A release off the grid (e.g. 14:35) is flagged on the row (RELEASE_OFF_GRID) for a reviewer to check in ASPECT &mdash; never held and never rounded: the day is calculated with the release exactly as recorded. 0 turns the check off.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+              <label className="block text-slate-800 font-semibold">
                 Release Proximity Tolerance (Minutes):
               </label>
               <input

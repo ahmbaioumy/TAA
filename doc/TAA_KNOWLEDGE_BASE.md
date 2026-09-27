@@ -1499,6 +1499,13 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    Cover-Not-Attended ABSENT). `reg-189`; `auditFixes.test.ts` (c2) added and (e) fixed — it built
    "15:65", an unparseable time, so it had never compared a straddling pair.
 
+3. **Release grid flag (business rule).** Releases are booked on a 30-minute grid (:00/:30 —
+   never 14:35 or 15:22). A `releaseGridCodes` segment (default RLS, RLS-2H, RLS-3H, UN_RLS,
+   Cover_RLS) off the `releaseGridMinutes` grid (default 30, 0 = off) sets `releaseGridNote` /
+   export column `TAA_RELEASE_GRID_NOTE` and a trace line; `TAA_DISAGREE_REASON` becomes
+   `RELEASE_OFF_GRID` only when still `MATCH`. Never a hold, never rounded (guessing ASPECT's
+   intent would change paid minutes). Config Registry has both fields. `reg-190`.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

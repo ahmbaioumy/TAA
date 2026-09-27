@@ -8690,6 +8690,49 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       calculationTrace: checks.map(([l, ok]) => `${ok ? 'PASS' : 'FAIL'} ${l}`),
     });
   }
+  {
+    // reg-190 (business rule 2026-09-27): releases are booked on a 30-minute grid. An off-grid
+    // RLS (14:35-15:00) is flagged, never held and never rounded — the day is calculated with
+    // the release exactly as recorded (net 480 - 25 = 455m). An on-grid RLS is not flagged.
+    const day = '27/08/2026';
+    const mk = (pf: string, rlsStart: string, rlsMin: number) => runReconciliation({
+      processingDate: SUITE_RUN_DATE,
+      cognosRecords: [{
+        'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'ECS', 'PF NO': pf, NAME: 'Release Grid Agent', 'LOGIN ID': `L${pf}`,
+        DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '', 'SIGNIN DURATION': '',
+        'SIGIN IN': '07:00', 'SIGIN OUT': rlsStart, 'LATE START': '0', 'LEFT EARLY': `-${rlsMin}`, 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+      }],
+      aspectSegments: [
+        { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 07:00:00`, STOP_MOMENT: `${day} 15:00:00`, DURATION: 480 },
+        { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'RLS', START_MOMENT: `${day} ${rlsStart}:00`, STOP_MOMENT: `${day} 15:00:00`, DURATION: rlsMin },
+      ],
+      aspectIdentities: [{ EMP_ID: pf, EMP_LAST_NAME: 'Release Grid Agent', EMP_SORT_NAME: 'RELEASE GRID AGENT' }],
+      cmsPunches: [
+        { Date: day, LoginID: `L${pf}`, LoginDateTime: makeDt(day, '07:00:00'), LogoutDateTime: makeDt(day, `${rlsStart}:10`) },
+        { Date: day, LoginID: 'sentinel-export-open', LoginDateTime: makeDt(day, '23:30:00'), LogoutDateTime: makeDt(day, '23:30:03') },
+      ],
+      config,
+    }).rows[0];
+    const off = mk('7000194', '14:35', 25);
+    const on = mk('7000195', '14:30', 30);
+    // The reason code is only set when nothing more specific (here DEFECT_1: Cognos ignored the
+    // release) already explains the row; the dedicated note + export column always carry it.
+    const offFlagged = (off.releaseGridNote ?? '').includes('RLS 14:35-15:00') && (off.details.ruleFired ?? '').includes('not on the 30-minute grid');
+    const passed = offFlagged && !off.holdReason && off.TAA_ACTION === 'NO_ACTION' && off.TAA_SCH_HOURS_RECOMPUTED === 455
+      && !on.releaseGridNote && !(on.details.ruleFired ?? '').includes('not on the');
+    results.push({
+      id: 'reg-190', name: 'Release Off The 30-Minute Grid Is Flagged, Not Held, Not Rounded', category: 'Release grid (2026-09-27)',
+      inputDescription: 'SHIFT 07:00-15:00 with RLS 14:35-15:00 (off grid) vs RLS 14:30-15:00 (on grid); agent leaves at the release start',
+      cognosFlawedVerdict: 'N/A — ASPECT booking check',
+      expectedVerdict: 'Off grid: TAA_RELEASE_GRID_NOTE + trace name the RLS, net 455m as recorded, not held. On grid: no flag',
+      expectedAction: 'NO_ACTION (the flag never changes the calculation)',
+      actualVerdict: `off: note=${off.releaseGridNote ?? ''}, net=${off.TAA_SCH_HOURS_RECOMPUTED}, hold=${off.holdReason ?? 'none'}; on: note=${on.releaseGridNote ?? 'none'}`,
+      actualAction: off.TAA_ACTION,
+      passed,
+      payrollImpact: 'None — a reviewer sees a mis-booked release without the day being held or recalculated on a guess',
+      calculationTrace: [`off ruleFired: ${off.details.ruleFired}`],
+    });
+  }
 
   // ==========================================================================
   // Reduced Office Hours (Flex, one configured weekday) — roh-01..roh-12

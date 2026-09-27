@@ -2009,6 +2009,30 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     if (reducedOfficeHoursApplied && disagreeReason === 'MATCH') {
       disagreeReason = 'REDUCED_OFFICE_HOURS_POLICY';
     }
+    // Release grid (business rule 2026-09-27): releases are booked on a fixed grid (default
+    // 30 minutes: :00/:30). An off-grid release is a visible, NON-blocking flag — never a hold
+    // and never rounded; the day was calculated with the release exactly as recorded.
+    const releaseGrid = config.releaseGridMinutes ?? 0;
+    let releaseGridNote = '';
+    if (releaseGrid > 0) {
+      const offGrid = empSegs.filter(seg => {
+        if (!isCodeInConfiguredSet(seg.SEG_CODE, config.releaseGridCodes || [])) return false;
+        const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
+        const sp = seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null;
+        const off = (d: Date | null) => !!d && ((d.getHours() * 60 + d.getMinutes()) % releaseGrid !== 0 || d.getSeconds() !== 0);
+        return off(st) || off(sp);
+      });
+      if (offGrid.length > 0) {
+        const describe = (seg: AspectSegment) => {
+          const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
+          const sp = seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null;
+          return `${seg.SEG_CODE} ${st ? formatTimeHHMM(st) : '--:--'}-${sp ? formatTimeHHMM(sp) : '--:--'}`;
+        };
+        releaseGridNote = `Release not on the ${releaseGrid}-minute grid: ${offGrid.map(describe).join(', ')} — calculated exactly as recorded; check the booking in ASPECT.`;
+        ruleFired += ` | ${releaseGridNote}`;
+        if (disagreeReason === 'MATCH') disagreeReason = 'RELEASE_OFF_GRID';
+      }
+    }
 
     // --- Phase 4: "worst-case Cognos" gate (2026-09-24, plan worst-case-cognos-gate.md).
     // A MISMATCH column is "action-neutral" when plugging Cognos's OWN figure into the
@@ -2464,6 +2488,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         return forced ? `${baseText} (locked — cannot be included until resolved)` : baseText;
       })(),
       coverFallbackNote: getCoverFallbackNote(rowCorrections, config),
+      releaseGridNote: releaseGridNote || undefined,
       details: {
         isFlex, isLeaveDay, hasOvertime, ruleFired, reducedOfficeHoursApplied,
         punchCount: matchingPunches.length,
@@ -4050,6 +4075,8 @@ export function generateAnnotatedCognosFile(
     // WP3 — appended at the end; do not insert earlier, appendedHeaders and
     // lineValues below must stay positionally zipped.
     'TAA_REVIEW_COMPLETED', 'TAA_COGNOS_ISSUE_LABEL',
+    // 2026-09-27 — release booked off the configured grid (informational, never a hold).
+    'TAA_RELEASE_GRID_NOTE',
   ];
   const allHeaders = [...originalHeaders, ...appendedHeaders];
 
@@ -4110,6 +4137,7 @@ export function generateAnnotatedCognosFile(
       // WP3 — appended at the end (see appendedHeaders comment above).
       r.reviewCompleted ? 'TRUE' : 'FALSE',
       r.TAA_COGNOS_AGREE ? '' : describeDisagreement(r),
+      r.releaseGridNote || '',
     ];
     lines.push(lineValues.map(escapeCell).join(delimiter));
   });
