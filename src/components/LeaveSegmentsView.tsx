@@ -25,6 +25,7 @@ export function LeaveSegmentsView({
   const [compareScheduleColumnsOnLeaveDays, setCompareScheduleColumnsOnLeaveDays] = useState<boolean>(config.compareScheduleColumnsOnLeaveDays);
   const [leaveCodesWithoutDuration, setLeaveCodesWithoutDuration] = useState<string[]>(config.leaveCodesWithoutDuration);
   const [genericLeaveContainerCodes, setGenericLeaveContainerCodes] = useState<string[]>(config.genericLeaveContainerCodes);
+  const [partialDayLeaveDeductionCodes, setPartialDayLeaveDeductionCodes] = useState<string[]>(config.partialDayLeaveDeductionCodes || []);
   const [cognosLeaveTypeVerdictValues, setCognosLeaveTypeVerdictValues] = useState<string[]>(config.cognosLeaveTypeVerdictValues);
   const [newMappingCognos, setNewMappingCognos] = useState('');
   const [newMappingTargets, setNewMappingTargets] = useState<string[]>([]);
@@ -38,6 +39,7 @@ export function LeaveSegmentsView({
     setCompareScheduleColumnsOnLeaveDays(config.compareScheduleColumnsOnLeaveDays);
     setLeaveCodesWithoutDuration(config.leaveCodesWithoutDuration);
     setGenericLeaveContainerCodes(config.genericLeaveContainerCodes);
+    setPartialDayLeaveDeductionCodes(config.partialDayLeaveDeductionCodes || []);
     setCognosLeaveTypeVerdictValues(config.cognosLeaveTypeVerdictValues);
   }, [
     config.nonWorkingDaySegmentCodes,
@@ -46,6 +48,7 @@ export function LeaveSegmentsView({
     config.compareScheduleColumnsOnLeaveDays,
     config.leaveCodesWithoutDuration,
     config.genericLeaveContainerCodes,
+    config.partialDayLeaveDeductionCodes,
     config.cognosLeaveTypeVerdictValues,
   ]);
 
@@ -59,6 +62,7 @@ export function LeaveSegmentsView({
       || compareScheduleColumnsOnLeaveDays !== config.compareScheduleColumnsOnLeaveDays
       || arraysDiffer(leaveCodesWithoutDuration, config.leaveCodesWithoutDuration)
       || arraysDiffer(genericLeaveContainerCodes, config.genericLeaveContainerCodes)
+      || arraysDiffer(partialDayLeaveDeductionCodes, config.partialDayLeaveDeductionCodes || [])
       || arraysDiffer(cognosLeaveTypeVerdictValues, config.cognosLeaveTypeVerdictValues);
   }, [
     nonWorkingCodes,
@@ -67,6 +71,7 @@ export function LeaveSegmentsView({
     compareScheduleColumnsOnLeaveDays,
     leaveCodesWithoutDuration,
     genericLeaveContainerCodes,
+    partialDayLeaveDeductionCodes,
     cognosLeaveTypeVerdictValues,
     config,
   ]);
@@ -151,6 +156,8 @@ export function LeaveSegmentsView({
       compareScheduleColumnsOnLeaveDays,
       leaveCodesWithoutDuration,
       genericLeaveContainerCodes,
+      // Only codes still marked Leave: a code un-marked above has no checkbox left to clear it.
+      partialDayLeaveDeductionCodes: partialDayLeaveDeductionCodes.filter(c => leaveCodes.some(l => norm(l) === norm(c))),
       cognosLeaveTypeVerdictValues,
     });
   };
@@ -390,6 +397,34 @@ export function LeaveSegmentsView({
               specific leave code, the specific code wins over a generic one for TAA_VERDICT/LEAVE TYPE purposes.
             </p>
           </div>
+        </div>
+
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+          <label className="block text-slate-800 font-semibold">Partial-Day Leave (Deduct When Timed):</label>
+          <div className="flex flex-wrap gap-2">
+            {leaveCodes.length === 0 && (
+              <span className="text-[11px] text-slate-400">Mark at least one code as Leave above to choose here.</span>
+            )}
+            {leaveCodes.map(code => (
+              <label key={code} className="flex items-center space-x-1.5 text-[11px] font-mono px-2.5 py-1 rounded-lg border border-slate-200 bg-white cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={partialDayLeaveDeductionCodes.some(c => norm(c) === norm(code))}
+                  onChange={() => setPartialDayLeaveDeductionCodes(prev =>
+                    prev.some(c => norm(c) === norm(code)) ? prev.filter(c => norm(c) !== norm(code)) : [...prev, norm(code)])}
+                  className="rounded border-slate-300 bg-white text-indigo-600 focus:ring-0"
+                />
+                <span>{code}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Half-day leave (e.g. ANNUAL 08:00&ndash;12:00 beside a SHIFT): when a ticked code carries its own start and stop
+            time on a scheduled day, it is deducted from scheduled hours like a release &mdash; the attendance window moves
+            and no leave/work review hold is raised when it sits at the start or end of the shift. A full-day row of the same
+            code (no times) is unaffected. Keep the code as No Effect in the Segment Glossary &mdash; reclassifying it as
+            Removal would also deduct every full-day row.
+          </p>
         </div>
 
         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">

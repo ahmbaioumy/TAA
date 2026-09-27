@@ -380,6 +380,22 @@ glossary uses, so a newly configured code can never trigger one without the othe
   (see §4.14 point 6 history) is retired. It is read exactly once, only when a saved/imported
   config predates these two fields entirely, to seed them — and never consulted again once either
   field is present. The engine itself never reads this flag.
+- **`config.partialDayLeaveDeductionCodes`** (default `['ANNUAL']`, 2026-09-27) — partial-day
+  (half-day) leave. A listed leave code whose row carries **both its own `START_MOMENT` and
+  `STOP_MOMENT`**, on a day that also has a timed Addition (SHIFT/OT), is deducted from that day as a
+  **Removal** (`isPartialDayLeaveDeduction`, `scheduleRecompute.ts`). It is positioned
+  leading/trailing like any release: it moves `effectiveStart`/`effectiveEnd` and reduces
+  `netScheduledMinutes`, so Late/Early is measured from the end of the leave. Example: SHIFT
+  08:00–17:00 + ANNUAL 08:00–12:00 → scheduled 300 min, a 12:00 arrival is on time, 12:20 is 20 min
+  late. A bare (full-day) or duration-only row of the same code keeps its glossary role (ANNUAL = No
+  Effect), so full-day leave and the leave-day gate are unchanged. When **every** leave segment on
+  the day is such a deduction and sits at the start or end of the shift, the
+  `MIXED_LEAVE_AND_WORK_SEGMENTS` hold is not raised and the row auto-includes (user decision); a
+  mid-shift one is still deducted but keeps the hold. `LEAVE HR` compares the leave's own span as
+  before. Keep the code **No Effect** in the Segment Glossary: reclassifying ANNUAL as Removal also
+  turns every bare full-day ANNUAL into a full-day removal (it broke `reg-108`). A listed code must
+  also be in `leaveSegmentCodes` and must not be an Addition (`validateConfigForRun`). Edited on the
+  Leave Segments page. `reg-192`–`reg-196`.
 
 ### 4.6c Absent + OT Co-occurrence — OT-to-SHIFT Replace Pair (replace-pair decision 2026-09-15)
 

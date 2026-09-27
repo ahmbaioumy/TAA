@@ -10027,5 +10027,101 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     }
   }
 
+  // reg-192..196 — Partial-day (half-day) ANNUAL leave (2026-09-27). A timed ANNUAL beside a
+  // SHIFT (config.partialDayLeaveDeductionCodes) is deducted like a release: it moves the
+  // effective window and reduces scheduled hours. Bare/duration-only ANNUAL is untouched
+  // (reg-108 and every full-day leave case). Reclassifying ANNUAL itself as Removal in the
+  // glossary is what broke reg-108 — this rule exists so that is never needed.
+  {
+    const halfDay = (opts: {
+      pf: string; annual: [string, string] | null; bareAnnual?: boolean; inT: string; outT: string;
+      lateStart: string; leftEarly: string; cfg?: ConfigRegistry;
+    }) => {
+      const day = '27/08/2026';
+      const segs: AspectSegment[] = [
+        { EMP_ID: opts.pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 08:00:00`, STOP_MOMENT: `${day} 17:00:00`, DURATION: 540 },
+      ];
+      if (opts.annual) segs.push({ EMP_ID: opts.pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'ANNUAL', START_MOMENT: `${day} ${opts.annual[0]}:00`, STOP_MOMENT: `${day} ${opts.annual[1]}:00` });
+      if (opts.bareAnnual) segs.push({ EMP_ID: opts.pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'ANNUAL' });
+      const loginId = `L${opts.pf}`;
+      const cognos: CognosRecord = {
+        'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'ECS', 'PF NO': opts.pf, NAME: 'Half Day Annual Agent', 'LOGIN ID': loginId,
+        DUTY1: '08:00 - 17:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '9:0', 'SIGNIN DURATION': '',
+        'SIGIN IN': opts.inT, 'SIGIN OUT': opts.outT, 'LATE START': opts.lateStart, 'LEFT EARLY': opts.leftEarly,
+        'LEAVE TYPE': 'ANNUAL', 'LEAVE HR': opts.annual ? '240' : '0', REMARK: '',
+      };
+      const punches: CMSPunch[] = [
+        { Date: day, LoginID: loginId, LoginDateTime: makeDt(day, `${opts.inT}:00`), LogoutDateTime: makeDt(day, `${opts.inT}:03`) },
+        { Date: day, LoginID: loginId, LoginDateTime: makeDt(day, `${opts.outT}:00`), LogoutDateTime: makeDt(day, `${opts.outT}:03`) },
+      ];
+      const identities: AspectIdentity[] = [{ EMP_ID: opts.pf, EMP_LAST_NAME: 'Half Day Annual Agent', EMP_SORT_NAME: 'HALF DAY ANNUAL AGENT', EMP_EXTRA_2: 'halfday' }];
+      const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: opts.cfg || config });
+      return { row: out.rows[0], out };
+    };
+    const summary = (row: ReconciliationRow) =>
+      `${row.TAA_VERDICT}/${row.TAA_ACTION}, sch=${row.TAA_SCH_HOURS_RECOMPUTED}, late=${row.TAA_LATE_MIN}, early=${row.TAA_EARLY_MIN}, hold=${row.holdReason || 'none'}, include=${row.includeInOutput}`;
+    const baseCase = {
+      category: 'Partial-day leave (half-day ANNUAL)',
+      cognosFlawedVerdict: 'Before the fix: ANNUAL is No Effect, so the half-day is ignored — the agent is charged the leave hours as Late/Early (or Absent) and scheduled hours stay at the full shift',
+      calculationTrace: [] as string[],
+    };
+    const annualListed = (config.partialDayLeaveDeductionCodes || []).some(c => c.trim().toUpperCase() === 'ANNUAL');
+
+    // reg-192: morning half-day — leading deduction, arrival at 12:00 is on time.
+    {
+      const { row } = halfDay({ pf: '8192001', annual: ['08:00', '12:00'], inT: '12:00', outT: '17:00', lateStart: '-240', leftEarly: '0' });
+      const passed = !annualListed || (row.TAA_VERDICT === 'PRESENT' && row.TAA_ACTION === 'NO_ACTION' && row.TAA_LATE_MIN === 0
+        && row.TAA_SCH_HOURS_RECOMPUTED === 300 && !row.holdReason && row.includeInOutput);
+      results.push({ ...baseCase, id: 'reg-192', name: 'Half-Day ANNUAL (Morning) Deducts 4h; 12:00 Arrival Is On Time',
+        inputDescription: 'SHIFT 08:00-17:00 + ANNUAL 08:00-12:00 (timed); CMS 12:00-17:00; Cognos LATE START -240, LEAVE HR 240',
+        expectedVerdict: 'PRESENT, sch 300, no Late, no hold, auto-included', expectedAction: 'NO_ACTION',
+        actualVerdict: summary(row), actualAction: row.TAA_ACTION, passed,
+        payrollImpact: 'Prevents a false 240-minute Late/Absent against an agent on approved half-day leave' });
+    }
+    // reg-193: afternoon half-day — trailing deduction, 13:00 logout is not an early logout.
+    {
+      const { row } = halfDay({ pf: '8192002', annual: ['13:00', '17:00'], inT: '08:00', outT: '13:00', lateStart: '0', leftEarly: '-240' });
+      const passed = !annualListed || (row.TAA_VERDICT === 'PRESENT' && row.TAA_ACTION === 'NO_ACTION' && row.TAA_EARLY_MIN === 0
+        && row.TAA_SCH_HOURS_RECOMPUTED === 300 && !row.holdReason && row.includeInOutput);
+      results.push({ ...baseCase, id: 'reg-193', name: 'Half-Day ANNUAL (Afternoon) Deducts 4h; 13:00 Logout Is Not Early',
+        inputDescription: 'SHIFT 08:00-17:00 + ANNUAL 13:00-17:00 (timed); CMS 08:00-13:00; Cognos LEFT EARLY -240, LEAVE HR 240',
+        expectedVerdict: 'PRESENT, sch 300, no Early Logout, no hold, auto-included', expectedAction: 'NO_ACTION',
+        actualVerdict: summary(row), actualAction: row.TAA_ACTION, passed,
+        payrollImpact: 'Prevents a false 240-minute Early Logout against an agent on approved half-day leave' });
+    }
+    // reg-194: late past the half-day — Late is measured from 12:00, not 08:00.
+    {
+      const { row } = halfDay({ pf: '8192003', annual: ['08:00', '12:00'], inT: '12:20', outT: '17:00', lateStart: '-260', leftEarly: '0' });
+      const passed = !annualListed || (row.TAA_LATE_MIN === 20 && row.TAA_SCH_HOURS_RECOMPUTED === 300 && row.TAA_VERDICT !== 'ABSENT');
+      results.push({ ...baseCase, id: 'reg-194', name: 'Half-Day ANNUAL: Late Is Measured From the End of the Leave (12:00), Not the Shift Start',
+        inputDescription: 'SHIFT 08:00-17:00 + ANNUAL 08:00-12:00 (timed); CMS 12:20-17:00',
+        expectedVerdict: 'Late 20 minutes (not 260), sch 300', expectedAction: 'Per the live Late Login band for 20 minutes',
+        actualVerdict: summary(row), actualAction: row.TAA_ACTION, passed,
+        payrollImpact: 'Charges only the real 20 minutes late, never the approved leave hours' });
+    }
+    // reg-195: guard — a bare (full-day) ANNUAL on a SHIFT day is NOT a partial-day deduction.
+    {
+      const { row } = halfDay({ pf: '8192004', annual: null, bareAnnual: true, inT: '08:00', outT: '17:00', lateStart: '0', leftEarly: '0' });
+      const passed = row.holdReason === 'MIXED_LEAVE_AND_WORK_SEGMENTS' && row.TAA_SCH_HOURS_RECOMPUTED === 540;
+      results.push({ ...baseCase, id: 'reg-195', name: 'Guard: Bare (Full-Day) ANNUAL + SHIFT Is Unchanged — Still a Leave/Work Review Hold',
+        inputDescription: 'SHIFT 08:00-17:00 + bare ANNUAL (no times, no duration); CMS 08:00-17:00',
+        expectedVerdict: 'MIXED_LEAVE_AND_WORK_SEGMENTS hold, sch 540 (nothing deducted)', expectedAction: 'n/a',
+        actualVerdict: summary(row), actualAction: row.TAA_ACTION, passed,
+        payrollImpact: 'The partial-day rule must never turn a full-day leave row into a deduction' });
+    }
+    // reg-196: guard — the config list really drives it: with ANNUAL removed, the timed row is No Effect again.
+    {
+      const offCfg: ConfigRegistry = { ...config, partialDayLeaveDeductionCodes: (config.partialDayLeaveDeductionCodes || []).filter(c => c.trim().toUpperCase() !== 'ANNUAL') };
+      const { row } = halfDay({ pf: '8192005', annual: ['08:00', '12:00'], inT: '12:00', outT: '17:00', lateStart: '-240', leftEarly: '0', cfg: offCfg });
+      const annualIsNoEffect = (offCfg.segmentGlossary.ANNUAL?.role ?? 'NO_EFFECT') === 'NO_EFFECT';
+      const passed = !annualIsNoEffect || (row.TAA_SCH_HOURS_RECOMPUTED === 540 && row.holdReason === 'MIXED_LEAVE_AND_WORK_SEGMENTS');
+      results.push({ ...baseCase, id: 'reg-196', name: 'Guard: Removing ANNUAL From partialDayLeaveDeductionCodes Turns the Deduction Off',
+        inputDescription: 'Same as reg-192, with ANNUAL removed from partialDayLeaveDeductionCodes',
+        expectedVerdict: 'sch 540 (no deduction), MIXED_LEAVE_AND_WORK_SEGMENTS hold', expectedAction: 'n/a',
+        actualVerdict: summary(row), actualAction: row.TAA_ACTION, passed,
+        payrollImpact: 'Proves the behaviour is config-driven (zero-hardcode), not baked into the ANNUAL code' });
+    }
+  }
+
   return results;
 }

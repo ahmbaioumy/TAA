@@ -1547,6 +1547,27 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    zero-duration closed/open pairs (e.g. Login IDs 72849/72884/72900, per Astra; verify locally)
    make it unsafe. Tests: `auditFixes.test.ts` CMS block (derived from Login ID 52854).
 
+## 7s. Partial-day (half-day) ANNUAL leave (2026-09-27)
+
+**Problem (user-reported).** A real half-day annual in ASPECT is `SHIFT 08:00-17:00` plus
+`ANNUAL 08:00-12:00` with its own START/STOP (user-confirmed shape). `ANNUAL` is No Effect in the
+glossary, so the leave was ignored: scheduled stayed 540, and a 12:00 arrival was charged 240 min
+late (measured: escalated to `ABSENT_SEGMENT`). The user's workaround, reclassifying ANNUAL as
+Removal, made Calculate fail the regression gate. Reproduced: exactly `reg-108` fails, because the
+glossary role applies to every ANNUAL row, and a bare full-day ANNUAL on a SHIFT day becomes a
+full-day removal (`FULL_DAY_REMOVAL_REVIEW`) instead of the leave/work review.
+
+**Fix.** ANNUAL stays No Effect. New config `partialDayLeaveDeductionCodes` (default `['ANNUAL']`):
+a listed code with both timestamps on a day with a timed Addition is a Removal for that day only
+(`isPartialDayLeaveDeduction`; one `roleOf` inside `recomputeDaySchedule`, the glossary is never
+mutated). Leading/trailing placement moves the window and deducts; the `MIXED_LEAVE_AND_WORK_SEGMENTS`
+hold is skipped when every leave segment on the day is such a placed deduction (auto-include, user
+decision); mid-shift/out-of-window still holds. Every existing ANNUAL fixture is bare or
+duration-only, so no existing case moved. Cognos `LATE START`/`LEFT EARLY` are still recomputed
+from the raw DUTY1 start/end (Cognos's own basis), so a Cognos row that also ignores the leave
+matches; one that doesn't is a real MISMATCH and holds. Pinned by `reg-192`–`reg-196` and
+`scheduleRecomputeBlocks.test.ts`.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

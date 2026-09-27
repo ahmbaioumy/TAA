@@ -482,6 +482,7 @@ export const DEFAULT_CONFIG: ConfigRegistry = {
   cognosLeaveTypeVerdictValues: ['U-ABSENT', 'Absent NS/NC', 'ABSENT'],
   nonWorkingDaySegmentCodes: DEFAULT_NON_WORKING_DAY_SEGMENT_CODES,
   leaveSegmentCodes: DEFAULT_LEAVE_SEGMENT_CODES,
+  partialDayLeaveDeductionCodes: ['ANNUAL'],
   existingAbsenceMarkerCodes: DEFAULT_EXISTING_ABSENCE_MARKER_CODES,
   cognosLeaveTypeMappings: DEFAULT_COGNOS_LEAVE_TYPE_MAPPINGS,
   coverExtendsAttendanceWindow: false,
@@ -663,6 +664,21 @@ export function validateConfigForRun(config: ConfigRegistry): ConfigValidationIs
     }
     if (!lookupGlossary(config.segmentGlossary, trimmed)) {
       issues.push({ field: 'leaveSegmentCodes', kind: 'value', message: `Leave code "${trimmed}" has no schedule-hours classification in the Segment Glossary — classify it before running reconciliation.` });
+    }
+  });
+
+  // Partial-day leave deduction only applies to a code the engine identifies as leave —
+  // a non-leave code here would deduct hours while never being reported as leave.
+  const leaveSet = new Set((config.leaveSegmentCodes || []).map(c => (c || '').trim().toUpperCase()));
+  (config.partialDayLeaveDeductionCodes || []).forEach(code => {
+    const trimmed = (code || '').trim();
+    if (!trimmed) return;
+    if (!leaveSet.has(trimmed.toUpperCase())) {
+      issues.push({ field: 'partialDayLeaveDeductionCodes', kind: 'value', message: `Partial-day leave code "${trimmed}" must also be listed in leaveSegmentCodes.` });
+    }
+    const role = lookupGlossary(config.segmentGlossary, trimmed)?.role;
+    if (role === 'ADDITION') {
+      issues.push({ field: 'partialDayLeaveDeductionCodes', kind: 'value', message: `Partial-day leave code "${trimmed}" is classified Addition in the Segment Glossary — a timed row cannot both add and deduct hours.` });
     }
   });
 

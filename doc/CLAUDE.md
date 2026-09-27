@@ -650,6 +650,14 @@ default, once, on a day with no schedule) and lives in `fullDayAdditionSegments`
 (ANNUAL etc.) are untouched until reclassified in the Segment Glossary; LEAVE HR is still never
 defaulted. This reverses the older "bare release is held, never defaulted" rule (`reg-53`, `reg-140`).
 
+**Partial-day leave (decision 2026-09-27):** a timed leave row (both START/STOP) whose code is in
+`partialDayLeaveDeductionCodes` (default `ANNUAL`), on a day with a timed Addition, is a Removal for
+that day only (`isPartialDayLeaveDeduction`) — a half-day ANNUAL moves the window and deducts hours;
+bare/duration-only ANNUAL stays No Effect. **Never reclassify ANNUAL as Removal in the glossary to get
+this** — that also turns every bare full-day ANNUAL into a full-day removal and fails `reg-108`. A
+cleanly placed (leading/trailing) partial-day leave skips `MIXED_LEAVE_AND_WORK_SEGMENTS` and
+auto-includes. `reg-192`–`reg-196`, PRD §Leave Segments, KB §7s.
+
 A day fully released this way is **never a valid cover target**: `resolveDayCoverAnchor` blocks it on
 `fullDayRemovalMinutes > 0`, so it takes the documented `skippedDay` + fallback path with the reason in
 the Memo. It still passes `isWorkingDaySegment` (its SHIFT row is still present), and the gate that used

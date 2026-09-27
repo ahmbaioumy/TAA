@@ -520,6 +520,15 @@ export interface ConfigRegistry {
    * MIXED_LEAVE_AND_WORK_SEGMENTS hold — independent of the ADDITION/REMOVAL schedule-hours
    * role, and independent of whether the day also carries a worked Addition segment. */
   leaveSegmentCodes: string[];
+  /** Partial-day leave (half-day ANNUAL): a listed code that carries BOTH its own
+   * START_MOMENT and STOP_MOMENT on a day that also has a timed Addition (SHIFT/OT) is
+   * deducted from that day's schedule as a REMOVAL — positioned leading/trailing like a
+   * release, so it moves the effective window and reduces netScheduledMinutes. Only that
+   * timed shape: a bare (full-day) or duration-only row of the same code keeps its
+   * Segment Glossary role (No Effect for ANNUAL), so full-day leave behaves exactly as
+   * before. Reclassifying the code itself as Removal would also turn every bare full-day
+   * row into a full-day removal — this list exists so that is never needed. */
+  partialDayLeaveDeductionCodes: string[];
   /** ASPECT codes meaning "this employee-day is already tagged absent" (§4.6f Absence
    * Already Recorded). Deliberately separate from nonWorkingDaySegmentCodes/
    * leaveSegmentCodes: ABSENT/Absent NS/NC still carry a SHIFT/OT addition segment

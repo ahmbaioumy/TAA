@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG } from './configRegistry';
-import { recomputeDaySchedule, ScheduleBlock } from './scheduleRecompute';
+import { recomputeDaySchedule, isPartialDayLeaveDeduction, ScheduleBlock } from './scheduleRecompute';
 import { runReconciliation } from './reconciliationEngine';
 import { SUITE_RUN_DATE } from './regressionSuite';
 import { isForcedHoldReason } from './holdReasons';
@@ -759,6 +759,40 @@ const schColumn = (segments: AspectSegment[], cognosSch: string) => {
   assert.equal(rec.unclassifiedCodes.length, 0);
   assert.equal(rec.netScheduledMinutes, 480);
   assert.equal(fmt({ start: rec.effectiveStart!, end: rec.effectiveEnd! }), '8:30 - 17:30', 'a mid-shift SPLIT must not move the window');
+}
+
+// Partial-day leave (half-day ANNUAL, 2026-09-27): a TIMED ANNUAL beside a SHIFT is deducted
+// like a release (config.partialDayLeaveDeductionCodes); a bare or duration-only ANNUAL keeps its
+// No Effect glossary role, so full-day leave is untouched.
+{
+  const shift = seg({ SEG_CODE: 'SHIFT', START_MOMENT: `${D} 08:00:00`, STOP_MOMENT: `${D} 17:00:00`, DURATION: 540 });
+  const morning = seg({ SEG_CODE: 'ANNUAL', START_MOMENT: `${D} 08:00:00`, STOP_MOMENT: `${D} 12:00:00` });
+  const afternoon = seg({ SEG_CODE: 'ANNUAL', START_MOMENT: `${D} 13:00:00`, STOP_MOMENT: `${D} 17:00:00` });
+  const bare = seg({ SEG_CODE: 'ANNUAL' });
+  const durationOnly = seg({ SEG_CODE: 'ANNUAL', DURATION: 240 });
+
+  assert.equal(isPartialDayLeaveDeduction(morning, [shift, morning], DEFAULT_CONFIG), true);
+  assert.equal(isPartialDayLeaveDeduction(bare, [shift, bare], DEFAULT_CONFIG), false, 'bare ANNUAL is full-day leave, never a deduction');
+  assert.equal(isPartialDayLeaveDeduction(durationOnly, [shift, durationOnly], DEFAULT_CONFIG), false, 'no timestamps -> nothing to position');
+  assert.equal(isPartialDayLeaveDeduction(morning, [morning], DEFAULT_CONFIG), false, 'no timed Addition that day -> nothing to deduct from');
+  assert.equal(isPartialDayLeaveDeduction(morning, [shift, morning], { ...DEFAULT_CONFIG, partialDayLeaveDeductionCodes: [] }), false, 'config list drives it');
+
+  const lead = recomputeDaySchedule([shift, morning], DEFAULT_CONFIG);
+  assert.equal(lead.netScheduledMinutes, 300);
+  assert.equal(fmt({ start: lead.effectiveStart!, end: lead.effectiveEnd! }), '12:00 - 17:00');
+  assert.equal(lead.leadingReleaseMinutes, 240);
+  assert.deepEqual(lead.partialLeaveDeductionSegments, [morning]);
+  assert.equal(lead.isLeaveDay, false);
+  assert.equal(lead.invalidDateTimeSegments.length, 0);
+
+  const trail = recomputeDaySchedule([shift, afternoon], DEFAULT_CONFIG);
+  assert.equal(trail.netScheduledMinutes, 300);
+  assert.equal(fmt({ start: trail.effectiveStart!, end: trail.effectiveEnd! }), '8:00 - 13:00');
+
+  const full = recomputeDaySchedule([shift, bare], DEFAULT_CONFIG);
+  assert.equal(full.netScheduledMinutes, 540, 'bare ANNUAL stays No Effect');
+  assert.equal(full.fullDayRemovalMinutes, 0);
+  assert.equal(full.partialLeaveDeductionSegments.length, 0);
 }
 
 console.log('Schedule-recompute block tests passed.');
