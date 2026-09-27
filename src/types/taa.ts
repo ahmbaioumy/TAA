@@ -874,6 +874,14 @@ export interface AspectCorrectionRow {
   SegmentStarttime: string; // HH:MM or empty for ABSENT
   Segmentduration: string; // HH:MM, or empty for ABSENT (no fixed duration)
   Memo: string;
+  /** COVER placement metadata (2026-09-27) — NEVER exported (generateAspectCorrectionsCsv writes
+   * only the named ASPECT fields). A next-working-day COVER is stacked on its target day after the
+   * day's last segment (baseStartMs) and after every earlier COVER in the same group (key =
+   * employee|target day); reallocateCoverSlots re-stacks each group from the FINAL include set so a
+   * held row's unexported COVER never pushes an exported one later, and input row order never
+   * matters. fixed = a same-day cover credited against proven attendance: never moved, and its
+   * group is left exactly as placed. */
+  coverSlot?: { key: string; fixed?: boolean; baseStartMs?: number; durationMin?: number; incidentNomDate?: string };
 }
 
 export interface EmailActionItem {

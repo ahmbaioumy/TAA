@@ -1522,6 +1522,18 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    28596, 28646, 4036626, 16850, 90119785) must be confirmed with a local replay — 90119785
    would export its (separately matching) late-arrival ABSENT once released. `reg-189` (g)(h)(i).
 
+5. **COVER allocation from the final include set (Astra P3).** Next-working-day COVERs were
+   stacked on their target day in Cognos input order, and a HELD row's COVER kept its slot: an
+   included row's COVER was exported 10m later behind an unexported reservation, the result
+   depended on input row order, and unticking a row in review left the gap (`rebuildOutputs` only
+   filtered). Now each such COVER carries `coverSlot` metadata (never exported) and
+   `reallocateCoverSlots` re-stacks every employee|target-day group: included rows first, then
+   held/unticked rows as provisional slots, each by incident date → PF → input order. It runs at
+   the end of `runReconciliation`, after the Hold Policy in `pipeline.ts`, and on every Include
+   toggle in `App.tsx`; approving a held row later re-stacks without overlap. A group that also
+   holds a same-day cover (credited against proven attendance) is left exactly as placed.
+   `reg-191`.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

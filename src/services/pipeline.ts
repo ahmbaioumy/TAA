@@ -22,7 +22,7 @@
  * user's Hold Policy must never affect either verification suite (see holdPolicy.ts's own
  * "no pre-flight lock-out" note).
  */
-import { runReconciliation, ReconciliationInput, ReconciliationOutput, rowIsMustCheck } from './reconciliationEngine';
+import { runReconciliation, ReconciliationInput, ReconciliationOutput, rowIsMustCheck, reallocateCoverSlots } from './reconciliationEngine';
 import { runUnseenPunchAudit } from './unseenPunchAudit';
 import { applyInitialReviewStatus } from './reviewStatus';
 import { applyHoldPolicy } from './holdPolicy';
@@ -32,5 +32,11 @@ export function runReconciliationWithAudit(input: ReconciliationInput): Reconcil
   const base = runReconciliation(input);
   const audited = runUnseenPunchAudit(input, base);
   const policied = applyHoldPolicy(audited, input.config, { rebuildOutputs, rowIsMustCheck });
-  return { ...policied, rows: applyInitialReviewStatus(policied.rows) };
+  // The audit and the Hold Policy change which rows are included, so COVER slots are re-stacked
+  // from that final include set (reallocateCoverSlots) and the outputs rebuilt when anything moved.
+  const allocatedRows = reallocateCoverSlots(policied.rows);
+  const settled = allocatedRows === policied.rows
+    ? policied
+    : { ...policied, rows: allocatedRows, ...rebuildOutputs(allocatedRows, policied.emailActions, input.config, policied.verificationAudit) };
+  return { ...settled, rows: applyInitialReviewStatus(settled.rows) };
 }

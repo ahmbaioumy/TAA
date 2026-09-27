@@ -7,7 +7,7 @@ import {
   EmailActionItem,
   ReconciliationRow,
 } from '../types/taa';
-import { generateAspectCorrectionsCsv, runReconciliation } from './reconciliationEngine';
+import { generateAspectCorrectionsCsv, runReconciliation, reallocateCoverSlots } from './reconciliationEngine';
 import { DEFAULT_CONFIG } from './configRegistry';
 import { parseClockTimeString, parseDateTimeString, truncateToMinute, validateCmsFile, parseAspectSegments, parseAspectIdentity, parseCognosReport, extractDistinctSegmentCodes, formatTimeHHMM } from './parsers';
 import { isForcedHoldReason } from './holdReasons';
@@ -8745,6 +8745,60 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       passed,
       payrollImpact: 'None — a reviewer sees a mis-booked release without the day being held or recalculated on a guess',
       calculationTrace: [`off ruleFired: ${off.details.ruleFired}`],
+    });
+  }
+  {
+    // reg-191 (2026-09-27, Astra P3): a held row's unexported COVER must never push an included
+    // row's COVER later on the same target day, and input row order must not matter. One agent,
+    // SHIFT 07:00-15:00 on 22, 23 and 25/09; 10m late on 22 and 23; run date 24/09 -> both COVERs
+    // target 25/09. The 22/09 row is held (Cognos DUTY1 06:00-14:00 vs ASPECT 07:00-15:00).
+    const pf = '7000199';
+    const runDate = new Date(2026, 8, 24);
+    const cog = (d: string, duty: string): CognosRecord => ({
+      'SIGN IN DATE': `2026-09-${d} 00:00:00`, SECTION: 'ECS', 'PF NO': pf, NAME: 'Cover Order Agent', 'LOGIN ID': `L${pf}`,
+      DUTY1: duty, OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:0', 'SIGNIN DURATION': '',
+      'SIGIN IN': '07:10', 'SIGIN OUT': '15:00', 'LATE START': '-10', 'LEFT EARLY': '0', 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+    });
+    const segs: AspectSegment[] = ['22/09/2026', '23/09/2026', '25/09/2026'].map(d => ({
+      EMP_ID: pf, NOM_DATE: d, START_DATE: d, SEG_CODE: 'SHIFT', START_MOMENT: `${d} 07:00:00`, STOP_MOMENT: `${d} 15:00:00`, DURATION: 480 }));
+    const punches: CMSPunch[] = [
+      ...['22/09/2026', '23/09/2026'].map(d => ({ Date: d, LoginID: `L${pf}`, LoginDateTime: makeDt(d, '07:10:00'), LogoutDateTime: makeDt(d, '15:00:30') })),
+      { Date: '19/09/2026', LoginID: 'sentinel-export-open', LoginDateTime: makeDt('19/09/2026', '00:01:00'), LogoutDateTime: makeDt('19/09/2026', '00:01:03') },
+      { Date: '26/09/2026', LoginID: 'sentinel-export-open', LoginDateTime: makeDt('26/09/2026', '23:30:00'), LogoutDateTime: makeDt('26/09/2026', '23:30:03') },
+    ];
+    const run = (recs: CognosRecord[]) => runReconciliation({ processingDate: runDate, cognosRecords: recs, aspectSegments: segs,
+      aspectIdentities: [{ EMP_ID: pf, EMP_LAST_NAME: 'Cover Order Agent', EMP_SORT_NAME: 'COVER ORDER AGENT' }], cmsPunches: punches,
+      config: { ...config, coverSameDayWhenAlreadyCovered: false } });
+    const exportedCovers = (csv: string) => csv.split('\n').filter(l => l.includes(',COVER,')).map(l => l.split(',')[5]).join(',');
+    const heldFirst = run([cog('22', '06:00 - 14:00'), cog('23', '07:00 - 15:00')]);
+    const heldLast = run([cog('23', '07:00 - 15:00'), cog('22', '06:00 - 14:00')]);
+    const both = run([cog('22', '07:00 - 15:00'), cog('23', '07:00 - 15:00')]);
+    const bothRev = run([cog('23', '07:00 - 15:00'), cog('22', '07:00 - 15:00')]);
+    const coverOf = (r: ReconciliationRow) => r.details.generatedCorrections.find(c => c.SegmentCode === 'COVER')?.SegmentStarttime;
+    const byDay = (rows: ReconciliationRow[], d: string) => rows.find(r => r.originalCognos['SIGN IN DATE'].startsWith(`2026-09-${d}`))!;
+    // Reviewer unticks the 22/09 row after both were included, then ticks it again.
+    const unticked = reallocateCoverSlots(both.rows.map(r => r === byDay(both.rows, '22') ? { ...r, includeInOutput: false } : r));
+    const reticked = reallocateCoverSlots(unticked.map(r => r.originalCognos['SIGN IN DATE'].startsWith('2026-09-22') ? { ...r, includeInOutput: true } : r));
+    const checks: [string, boolean][] = [
+      ['held row first: exported 23/09 COVER at 15:00', byDay(heldFirst.rows, '22').holdReason === 'MISMATCH_FOUND' && exportedCovers(heldFirst.aspectCorrectionsCsv) === '15:00'],
+      ['held row last: same export', exportedCovers(heldLast.aspectCorrectionsCsv) === '15:00'],
+      ['held row keeps a provisional slot after it (15:10)', coverOf(byDay(heldFirst.rows, '22')) === '15:10' && coverOf(byDay(heldLast.rows, '22')) === '15:10'],
+      ['both included: by incident date, any input order (22=15:00, 23=15:10)', coverOf(byDay(both.rows, '22')) === '15:00' && coverOf(byDay(both.rows, '23')) === '15:10'
+        && coverOf(byDay(bothRev.rows, '22')) === '15:00' && coverOf(byDay(bothRev.rows, '23')) === '15:10'],
+      ['untick 22 -> remaining 23 COVER moves to 15:00', coverOf(byDay(unticked, '23')) === '15:00' && coverOf(byDay(unticked, '22')) === '15:10'],
+      ['re-tick 22 -> 22=15:00, 23=15:10, no overlap', coverOf(byDay(reticked, '22')) === '15:00' && coverOf(byDay(reticked, '23')) === '15:10'],
+    ];
+    results.push({
+      id: 'reg-191', name: 'A Held Row\'s COVER Never Pushes An Exported COVER Later; Input Order Never Matters', category: 'COVER allocation (2026-09-27)',
+      inputDescription: 'Late 10m on 22/09 and 23/09, both COVERs target 25/09 (run date 24/09); 22/09 held in one variant; rows in both input orders; untick/re-tick of 22/09',
+      cognosFlawedVerdict: 'N/A — placement order defect: an unexported reservation acted as a real schedule commitment',
+      expectedVerdict: 'Exported COVERs depend only on the included set, stacked by incident date; held rows get provisional slots after them',
+      expectedAction: 'LATE_AND_COVER',
+      actualVerdict: checks.map(([l, ok]) => `${ok ? 'ok' : 'NO'}: ${l}`).join('; '),
+      actualAction: byDay(heldFirst.rows, '23').TAA_ACTION,
+      passed: checks.every(([, ok]) => ok),
+      payrollImpact: 'The exported COVER lands at the day\'s real next free slot, not 10 minutes later with an unexplained gap',
+      calculationTrace: checks.map(([l, ok]) => `${ok ? 'PASS' : 'FAIL'} ${l}`),
     });
   }
 

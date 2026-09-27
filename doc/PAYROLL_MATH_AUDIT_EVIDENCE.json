@@ -56,7 +56,13 @@
               "SegmentDate": "28/09/2026",
               "SegmentStarttime": "08:00",
               "Segmentduration": "00:06",
-              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default",
+              "coverSlot": {
+                "key": "AUDIT|28/09/2026",
+                "baseStartMs": 1790582400000,
+                "durationMin": 6,
+                "incidentNomDate": "08/09/2026"
+              }
             }
           ],
           "comparisons": [
@@ -569,7 +575,13 @@
               "SegmentDate": "28/09/2026",
               "SegmentStarttime": "08:00",
               "Segmentduration": "01:00",
-              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default",
+              "coverSlot": {
+                "key": "AUDIT|28/09/2026",
+                "baseStartMs": 1790582400000,
+                "durationMin": 60,
+                "incidentNomDate": "08/09/2026"
+              }
             }
           ],
           "comparisons": [
@@ -921,7 +933,13 @@
               "SegmentDate": "28/09/2026",
               "SegmentStarttime": "08:00",
               "Segmentduration": "00:06",
-              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default",
+              "coverSlot": {
+                "key": "AUDIT|28/09/2026",
+                "baseStartMs": 1790582400000,
+                "durationMin": 6,
+                "incidentNomDate": "08/09/2026"
+              }
             }
           ],
           "comparisons": [
@@ -1872,7 +1890,13 @@
               "SegmentDate": "28/09/2026",
               "SegmentStarttime": "08:00",
               "Segmentduration": "00:06",
-              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default",
+              "coverSlot": {
+                "key": "AUDIT|28/09/2026",
+                "baseStartMs": 1790582400000,
+                "durationMin": 6,
+                "incidentNomDate": "08/09/2026"
+              }
             }
           ],
           "comparisons": [
@@ -2142,7 +2166,13 @@
               "SegmentDate": "28/09/2026",
               "SegmentStarttime": "08:00",
               "Segmentduration": "00:06",
-              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default"
+              "Memo": "TAA Cover for 08/09/2026 Late/Variance | Cover added without ASPECT data - fallback: Next-week Mon, 08:00 default",
+              "coverSlot": {
+                "key": "AUDIT|28/09/2026",
+                "baseStartMs": 1790582400000,
+                "durationMin": 6,
+                "incidentNomDate": "08/09/2026"
+              }
             }
           ],
           "comparisons": [
@@ -2727,8 +2757,8 @@
       "id": "EXISTING_REGRESSION_SUITE",
       "expected": "All embedded regression cases should pass.",
       "observed": {
-        "passed": 242,
-        "total": 242,
+        "passed": 243,
+        "total": 243,
         "failures": []
       }
     }

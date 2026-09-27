@@ -2563,6 +2563,12 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     results.push(reconciliationRow);
   }
 
+  // Re-stack every next-working-day COVER from the FINAL include set (see reallocateCoverSlots):
+  // placement above ran in input order and let a held row's unexported COVER push an included
+  // row's COVER later on the same target day.
+  const allocated = reallocateCoverSlots(results);
+  results.splice(0, results.length, ...allocated);
+  allCorrections.splice(0, allCorrections.length, ...results.flatMap(r => r.details.generatedCorrections));
   const aspectCorrectionsCsv = generateAspectCorrectionsCsv(
     results.filter(r => r.includeInOutput).flatMap(r => r.details.generatedCorrections)
   );
@@ -3879,9 +3885,64 @@ function tryPlaceSameDayCover(
   const row: AspectCorrectionRow = {
     Code: config.aspectNormalActionCode, ID: empId, SegmentCode: 'COVER', nominateDate: incidentDateStr, SegmentDate: formatSegmentDate(windowStart),
     SegmentStarttime: formatTimeHHMM(windowStart), Segmentduration: formatMinutesToHHMM(durationMinutes), Memo: memo,
+    coverSlot: { key: trackerKey, fixed: true },
   };
   coverReservationByRow.set(row, { trackerKey, entry: reservationEntry });
   return row;
+}
+
+/** Deterministic COVER allocation (2026-09-27). Every next-working-day COVER (coverSlot with a
+ * baseStartMs) is re-stacked per group (employee|target day) from the group's base start:
+ * INCLUDED rows first, then held/excluded rows as provisional slots after them; within each,
+ * by incident date, then PF, then original row/correction order. So:
+ *  - an unexported (held/unticked) COVER never pushes an exported one later on the same day;
+ *  - equivalent included inputs get the same placement whatever the input row order;
+ *  - approving a held row later re-stacks the group without any overlap.
+ * A group that also holds a fixed same-day cover is left exactly as placed (that cover is tied
+ * to proven attendance; mixing the two is not re-derived). Pure: returns new row/correction
+ * objects only where something moved, the same array when nothing did. Called at the end of
+ * runReconciliation, after the Hold Policy (pipeline.ts) and on every Include toggle (App.tsx). */
+export function reallocateCoverSlots(rows: ReconciliationRow[]): ReconciliationRow[] {
+  type Item = { rowIdx: number; corrIdx: number; corr: AspectCorrectionRow; included: boolean; incidentMs: number; pf: string };
+  const groups = new Map<string, Item[]>();
+  const fixedKeys = new Set<string>();
+  rows.forEach((r, rowIdx) => r.details.generatedCorrections.forEach((corr, corrIdx) => {
+    const slot = corr.coverSlot;
+    if (!slot) return;
+    if (slot.fixed) { fixedKeys.add(slot.key); return; }
+    if (slot.baseStartMs === undefined || slot.durationMin === undefined) return;
+    const incident = slot.incidentNomDate ? parseDateTimeString(slot.incidentNomDate) : null;
+    const list = groups.get(slot.key) || [];
+    list.push({ rowIdx, corrIdx, corr, included: r.includeInOutput, incidentMs: incident ? incident.getTime() : 0, pf: corr.ID });
+    groups.set(slot.key, list);
+  }));
+  const moved = new Map<number, Map<number, AspectCorrectionRow>>();
+  groups.forEach((items, key) => {
+    if (fixedKeys.has(key)) return;
+    const ordered = [...items].sort((a, b) =>
+      (a.included === b.included ? 0 : a.included ? -1 : 1)
+      || a.incidentMs - b.incidentMs
+      || a.pf.localeCompare(b.pf)
+      || a.rowIdx - b.rowIdx
+      || a.corrIdx - b.corrIdx);
+    let cursorMs = Math.min(...ordered.map(i => i.corr.coverSlot!.baseStartMs!));
+    ordered.forEach(item => {
+      const start = new Date(cursorMs);
+      cursorMs += item.corr.coverSlot!.durationMin! * 60000;
+      const SegmentStarttime = formatTimeHHMM(start);
+      const SegmentDate = formatSegmentDate(start);
+      if (SegmentStarttime === item.corr.SegmentStarttime && SegmentDate === item.corr.SegmentDate) return;
+      const perRow = moved.get(item.rowIdx) || new Map<number, AspectCorrectionRow>();
+      perRow.set(item.corrIdx, { ...item.corr, SegmentStarttime, SegmentDate });
+      moved.set(item.rowIdx, perRow);
+    });
+  });
+  if (moved.size === 0) return rows;
+  return rows.map((r, rowIdx) => {
+    const perRow = moved.get(rowIdx);
+    if (!perRow) return r;
+    return { ...r, details: { ...r.details, generatedCorrections: r.details.generatedCorrections.map((c, i) => perRow.get(i) ?? c) } };
+  });
 }
 
 interface RecordedIncident { note: string }
@@ -3961,6 +4022,7 @@ function placeCoverSegment(
     // SegmentDate can legitimately differ by one calendar day for an overnight target.
     Code: config.aspectNormalActionCode, ID: empId, SegmentCode: 'COVER', nominateDate: targetDateStr, SegmentDate: formatSegmentDate(coverStartDt),
     SegmentStarttime: formatTimeHHMM(coverStartDt), Segmentduration: formatMinutesToHHMM(durationMinutes), Memo: memo,
+    coverSlot: { key: trackerKey, baseStartMs: lastSegmentEndDt.getTime(), durationMin: durationMinutes, incidentNomDate: incidentNomDateStr },
   };
   if (fallbackOption) coverFallbackByRow.set(row, fallbackOption);
   coverReservationByRow.set(row, { trackerKey, entry: reservationEntry });

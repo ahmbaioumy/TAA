@@ -18,7 +18,7 @@ import { EmailConfigWizardModal } from './components/EmailConfigWizardModal';
 import { CognosRecord, AspectSegment, AspectIdentity, CMSPunch, ConfigRegistry, GlossaryEntry, VerificationFailedCheck, VerificationOverrideAudit, ReviewStatus } from './types/taa';
 import { reviewStatusAfterIncludeToggle } from './services/reviewStatus';
 import { loadConfigRegistry, saveConfigRegistry, resetConfigRegistry, exportConfigToJson, importConfigFromJson, validateConfigForRun } from './services/configRegistry';
-import { ReconciliationInput, ReconciliationOutput } from './services/reconciliationEngine';
+import { ReconciliationInput, ReconciliationOutput, reallocateCoverSlots } from './services/reconciliationEngine';
 import { rebuildOutputs } from './services/outputRebuild';
 import { runReconciliationWithAudit } from './services/pipeline';
 import { holdPolicyLayout, isResultStale } from './services/holdPolicy';
@@ -125,7 +125,7 @@ export default function App() {
   const handleToggleInclude = (rowId: string, nextChecked: boolean) => {
     setOutput(prev => {
       if (!prev) return prev;
-      const rows = prev.rows.map(r => {
+      const toggled = prev.rows.map(r => {
         if (r.id !== rowId || isForcedHoldReason(r.holdReason)) return r;
         const hasCorrections = r.details.generatedCorrections.length > 0;
         return {
@@ -136,9 +136,13 @@ export default function App() {
           reviewStatus: reviewStatusAfterIncludeToggle(r.reviewStatus, nextChecked),
         };
       });
-      const { aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson } =
+      // Include changed -> re-stack COVER slots from the new include set (reallocateCoverSlots), so
+      // an unticked row's COVER no longer pushes an exported one later, and a newly ticked one
+      // slots in by incident date without overlapping.
+      const rows = reallocateCoverSlots(toggled);
+      const { aspectCorrections, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson } =
         rebuildOutputs(rows, prev.emailActions, config, prev.verificationAudit);
-      return { ...prev, rows, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson };
+      return { ...prev, rows, aspectCorrections, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson };
     });
   };
 
@@ -162,7 +166,7 @@ export default function App() {
     setOutput(prev => {
       if (!prev) return prev;
       const idSet = new Set(rowIds);
-      const rows = prev.rows.map(r => {
+      const toggled = prev.rows.map(r => {
         if (!idSet.has(r.id) || isForcedHoldReason(r.holdReason)) return r;
         const hasCorrections = r.details.generatedCorrections.length > 0;
         return {
@@ -172,9 +176,13 @@ export default function App() {
           includeDecisionSource: 'user' as const,
         };
       });
-      const { aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson } =
+      // Include changed -> re-stack COVER slots from the new include set (reallocateCoverSlots), so
+      // an unticked row's COVER no longer pushes an exported one later, and a newly ticked one
+      // slots in by incident date without overlapping.
+      const rows = reallocateCoverSlots(toggled);
+      const { aspectCorrections, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson } =
         rebuildOutputs(rows, prev.emailActions, config, prev.verificationAudit);
-      return { ...prev, rows, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson };
+      return { ...prev, rows, aspectCorrections, aspectCorrectionsCsv, annotatedCognosCsv, annotatedCognosTsv, emailActionsJson };
     });
   };
   const [isCalculating, setIsCalculating] = useState(false);
