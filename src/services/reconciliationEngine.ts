@@ -2273,7 +2273,29 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // below) — the unseen-punch audit's own dedicated re-hold marker (details.
     // noAttendanceGateReleased). Never inferred from ruleFired text by that audit.
     let noAttendanceGateReleased: { holdReason: 'FULL_DAY_REMOVAL_ON_SCHEDULED_DAY' | 'MIXED_LEAVE_AND_WORK_SEGMENTS' } | undefined;
-    if (!holdReason && leaveSegmentsForDay.length > 0 && recompute.additionSegments.length > 0 && !isPublicHolidayOvertimeDay) {
+    // Partial-day leave (config.partialDayLeaveDeductionCodes, e.g. a half-day ANNUAL
+    // 08:00-12:00 beside a SHIFT): when EVERY leave segment on the day is a timed partial-day
+    // deduction that the recompute placed at the start or end of the shift, the leave/work
+    // mix is fully accounted for — the leave is deducted from scheduled hours and the
+    // attendance rules already measured against the shortened window. No review hold (user
+    // decision 2026-09-27). A MID / out-of-window / otherwise unplaced one still holds.
+    const partialLeaveUnplaced = new Set<AspectSegment>([
+      ...recompute.midShiftRemovalSegments,
+      ...recompute.otInternalRemovalSegments,
+      ...recompute.outOfWindowRemovalSegments,
+      ...recompute.unknownDurationRemovalSegments,
+      ...recompute.ambiguousOverlappingRemovalSegments,
+    ]);
+    const isPartialDayLeaveOnlyDay = leaveSegmentsForDay.length > 0
+      && leaveSegmentsForDay.every(s => recompute.partialLeaveDeductionSegments.includes(s) && !partialLeaveUnplaced.has(s));
+    if (!holdReason && leaveSegmentsForDay.length > 0 && recompute.additionSegments.length > 0 && !isPublicHolidayOvertimeDay && isPartialDayLeaveOnlyDay) {
+      const described = leaveSegmentsForDay.map(s => {
+        const st = s.START_MOMENT ? parseDateTimeString(s.START_MOMENT) : null;
+        const en = s.STOP_MOMENT ? parseDateTimeString(s.STOP_MOMENT) : null;
+        return st && en ? `${s.SEG_CODE} ${formatTimeHHMM(st)}-${formatTimeHHMM(en)}` : s.SEG_CODE;
+      }).join(', ');
+      ruleFired = `${ruleFired ? ruleFired + ' — ' : ''}Partial-day leave (${described}) deducted from scheduled hours; attendance measured against the shortened window; no leave/work review hold.`;
+    } else if (!holdReason && leaveSegmentsForDay.length > 0 && recompute.additionSegments.length > 0 && !isPublicHolidayOvertimeDay) {
       if (isPublicHolidayShiftMiscodedDay) {
         holdReason = 'PUBLIC_HOLIDAY_SHIFT_MISCODED';
       } else if (!noAttendanceAllAgree) {

@@ -120,6 +120,11 @@ export interface DayScheduleRecompute {
   /** Full-day REMOVAL segments (no DURATION, no timestamps): each takes the day's whole
    * remaining schedule. Deliberately NOT in removalSegments (nothing to position). */
   fullDayRemovalSegments: AspectSegment[];
+  /** Timed partial-day leave rows (config.partialDayLeaveDeductionCodes, e.g. a half-day
+   * ANNUAL 08:00-12:00 beside a SHIFT) deducted as REMOVALs for this day only — see
+   * isPartialDayLeaveDeduction. Also present in removalSegments; listed here so the
+   * engine and the trace can tell a leave deduction from a release. */
+  partialLeaveDeductionSegments: AspectSegment[];
 }
 
 const PROXIMITY_TOLERANCE_MINUTES_DEFAULT = 2;
@@ -237,6 +242,30 @@ export function isFullDayBareSegment(s: AspectSegment, glossary: Record<string, 
 }
 
 /**
+ * Partial-day leave (e.g. a half-day ANNUAL): a code listed in
+ * config.partialDayLeaveDeductionCodes, whose Segment Glossary role is not already
+ * ADDITION/REMOVAL, carrying BOTH its own START_MOMENT and STOP_MOMENT (stop after start),
+ * on a day that also has at least one timed ADDITION. Such a row is deducted from the day
+ * as a REMOVAL — positioned like any release. A bare (full-day) or duration-only row of
+ * the same code is never matched: it keeps its glossary role, so full-day leave, the
+ * leave-day gate, and every existing full-day case behave exactly as before. The glossary
+ * itself is never changed.
+ */
+export function isPartialDayLeaveDeduction(seg: AspectSegment, daySegments: AspectSegment[], config: ConfigRegistry): boolean {
+  if (!isCodeInConfiguredSet(seg.SEG_CODE, config.partialDayLeaveDeductionCodes || [])) return false;
+  const glossary = config.segmentGlossary;
+  const role = lookupGlossary(glossary, seg.SEG_CODE)?.role;
+  if (role === 'ADDITION' || role === 'REMOVAL') return false;
+  const timedSpan = (s: AspectSegment): boolean => {
+    const start = (s.START_MOMENT || '').trim() ? parseDateTimeString(s.START_MOMENT as string) : null;
+    const stop = (s.STOP_MOMENT || '').trim() ? parseDateTimeString(s.STOP_MOMENT as string) : null;
+    return !!start && !!stop && truncateToMinute(stop).getTime() > truncateToMinute(start).getTime();
+  };
+  if (!timedSpan(seg)) return false;
+  return daySegments.some(s => s !== seg && lookupGlossary(glossary, s.SEG_CODE)?.role === 'ADDITION' && timedSpan(s));
+}
+
+/**
  * Resolve a segment's minute contribution AND say where the number came from.
  *
  * Order of trust:
@@ -305,6 +334,13 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
 
   const defaultFullDayMinutes = config.defaultFullDaySegmentDurationMinutes ?? 480;
 
+  // Per-day effective role: a timed partial-day leave row counts as a REMOVAL for this day
+  // only; every other segment keeps its glossary role. Every role read below goes through
+  // roleOf so the two can never disagree.
+  const partialLeaveDeductionSegments = segments.filter(s => isPartialDayLeaveDeduction(s, segments, config));
+  const partialLeaveSet = new Set(partialLeaveDeductionSegments);
+  const roleOf = (s: AspectSegment) => (partialLeaveSet.has(s) ? 'REMOVAL' : lookupGlossary(glossary, s.SEG_CODE)?.role);
+
   const invalidDateTimeSegments = segments.filter(seg => {
     const nomDate = parseDateTimeString(seg.NOM_DATE || '');
     const startDate = seg.START_DATE ? parseDateTimeString(seg.START_DATE) : null;
@@ -312,7 +348,7 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
     const stopText = (seg.STOP_MOMENT || '').trim();
     const start = startText ? parseDateTimeString(startText) : null;
     const stop = stopText ? parseDateTimeString(stopText) : null;
-    const role = lookupGlossary(glossary, seg.SEG_CODE)?.role;
+    const role = roleOf(seg);
 
     if (!nomDate) return true;
     if (seg.START_DATE && !startDate) return true;
@@ -395,7 +431,9 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
       if (!unclassifiedCodes.includes(s.SEG_CODE)) unclassifiedCodes.push(s.SEG_CODE);
       return; // never guess a role for an unclassified code (§6.4 zero-hardcode)
     }
-    if (entry.role === 'ADDITION') {
+    if (partialLeaveSet.has(s)) {
+      removalSegments.push(s);
+    } else if (entry.role === 'ADDITION') {
       const dupeKey = additionDupeKey(s);
       if (seenAdditionKeys.has(dupeKey)) return;
       seenAdditionKeys.add(dupeKey);
@@ -433,7 +471,7 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
   // DURATION segment with real timestamps, but the source data still needs fixing.
   const malformedDurationRepairedSegments = segments.filter(s => {
     if (!s.DURATION_TEXT_MALFORMED) return false;
-    const role = lookupGlossary(glossary, s.SEG_CODE)?.role;
+    const role = roleOf(s);
     if (role !== 'ADDITION' && role !== 'REMOVAL') return false;
     return resolveSegmentMinutes(s, glossary, defaultFullDayMinutes).source === 'TIMESTAMPS';
   });
@@ -884,7 +922,7 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
   // case (59 of 663 SHIFT rows write "29/08/2026" with no time for a shift ending at
   // midnight): it is read as 00:00, which is right only while START + DURATION agrees.
   const durationDisagreementSegments: AspectSegment[] = segments.filter(seg => {
-    const role = lookupGlossary(glossary, seg.SEG_CODE)?.role;
+    const role = roleOf(seg);
     if (role !== 'ADDITION' && role !== 'REMOVAL') return false; // NO_EFFECT tags never move a number
     if (seg.DURATION == null) return false;
     const resolved = resolveSegmentMinutes(seg, glossary, defaultFullDayMinutes);
@@ -1095,5 +1133,6 @@ export function recomputeDaySchedule(segments: AspectSegment[], config: ConfigRe
     removalSegments,
     fullDayAdditionSegments,
     fullDayRemovalSegments,
+    partialLeaveDeductionSegments,
   };
 }
