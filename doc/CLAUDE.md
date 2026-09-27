@@ -198,7 +198,9 @@ manager-CC lookup.
 - **All payroll dates/times are strict local wall-clock values.** Accept only documented
   `DD/MM/YYYY[ HH:MM[:SS]]` and `YYYY-MM-DD[ HH:MM[:SS]]` forms; validate the actual calendar
   and clock ranges; never use native locale-dependent `Date` fallback. Bare ASPECT dates mean
-  midnight. Reject invalid/contradictory CMS files, and lock malformed ASPECT schedule evidence
+  midnight. Reject invalid/contradictory CMS files (a CMS session whose logout lands 2+ days
+  after its row date is NOT invalid: load it and let the engine lock every row it covers as
+  `MULTI_DAY_CMS_SESSION` — never reject the whole upload for it), and lock malformed ASPECT schedule evidence
   as `INVALID_ASPECT_DATETIME` or invalid Config Registry clocks as `INVALID_CONFIG_TIME` so
   neither can reach a correction CSV.
 - **A blank Cognos `LOGIN ID` is held for review, never auto-Absent** (`MISSING_CMS_JOIN_KEY`) —

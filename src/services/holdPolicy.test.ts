@@ -300,4 +300,22 @@ function configWithReleased(released: string[]): ConfigRegistry {
   console.log('PASS: every TaaActionCode maps to a known Hold Policy action-group column');
 }
 
+// --- 12. MULTI_DAY_CMS_SESSION (2026-09-27) is locked: listed under Locked, never a policy row,
+// and a row carrying it stays held even with EVERY cell of every tab released (tampered import).
+
+{
+  const layout = holdPolicyLayout();
+  assert.ok(layout.locked.some(l => l.reason === 'MULTI_DAY_CMS_SESSION'), 'MULTI_DAY_CMS_SESSION must render in the Locked list');
+  assert.ok(!layout.rows.some(r => r.ruleKey === 'MULTI_DAY_CMS_SESSION'), 'MULTI_DAY_CMS_SESSION must never be a releasable policy row');
+  const everyCell = STAFF_CATEGORIES.flatMap(c => ACTION_GROUPS.map(g => cellId(c, 'MULTI_DAY_CMS_SESSION', g)));
+  for (const TAA_ACTION of ['MANUAL_REVIEW_REQUIRED', 'NO_ACTION'] as TaaActionCode[]) {
+    const row = makeRow({ TAA_TIER: 'OPS', TAA_ACTION, holdReason: 'MULTI_DAY_CMS_SESSION' });
+    assert.equal(classifyHold(row), 'LOCKED');
+    const result = applyHoldPolicy(makeOutput([row]), configWithReleased(everyCell), HELPERS);
+    assert.equal(result.rows[0].holdReason, 'MULTI_DAY_CMS_SESSION', `MULTI_DAY_CMS_SESSION (${TAA_ACTION}) must stay held with every cell released`);
+  }
+  assert.deepEqual(sanitizeHoldPolicy({ released: everyCell }), { released: [] }, 'sanitizeHoldPolicy strips every MULTI_DAY_CMS_SESSION id');
+  console.log('PASS: MULTI_DAY_CMS_SESSION is locked in the Hold Policy tab and cannot be released');
+}
+
 console.log('Hold Policy tests passed.');

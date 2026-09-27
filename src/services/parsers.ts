@@ -464,6 +464,17 @@ function resolveCmsRow(row: string[]): CmsRowState {
   return { kind: 'OK', login, logout };
 }
 
+/** True when a closed CMS logout lands two or more calendar days after the row's Date (login
+ * 24th, logout 27th). Shared by validateCmsFile (warning, never a reject) and parseCmsPunches
+ * (spansMultipleDays flag) so the two can never disagree. A same-day or next-day logout (a normal
+ * or cross-midnight shift) is never flagged. */
+function logoutSpansMultipleDays(dateStr: string, logout: Date): boolean {
+  const rowDate = parseDateTimeString(dateStr);
+  if (!rowDate) return false;
+  const nextDayEnd = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate() + 2);
+  return logout.getTime() >= nextDayEnd.getTime();
+}
+
 export function parseCmsPunches(content: string): CMSPunch[] {
   const rawRows = parseDelimitedText(content);
   if (rawRows.length < 4) return [];
@@ -491,6 +502,7 @@ export function parseCmsPunches(content: string): CMSPunch[] {
       LoginDateTime: state.login,
       LogoutDateTime: state.logout,
       stillClockedIn: stillClockedIn || undefined,
+      spansMultipleDays: (state.logout !== null && logoutSpansMultipleDays(dateStr, state.logout)) || undefined,
     });
   }
 
@@ -507,7 +519,9 @@ function cmsColLabel(colIndex: number): string {
 }
 
 export type CmsFileValidation =
-  | { ok: true; punches: CMSPunch[] }
+  /** warnings: non-blocking notes for the uploader (currently: sessions whose logout lands two or
+   * more days after the row's date — accepted, flagged spansMultipleDays, held by the engine). */
+  | { ok: true; punches: CMSPunch[]; warnings: string[] }
   | { ok: false; reason: string };
 
 export interface CmsColumnStatus {
@@ -587,6 +601,7 @@ export function validateCmsFile(content: string, fileName: string): CmsFileValid
   }
 
   let dataRowCount = 0;
+  const warnings: string[] = [];
   for (let r = headerIndex + 1; r < rawRows.length; r++) {
     const row = rawRows[r];
     if (row.length < 2 || !row[0].trim()) continue; // blank trailing row, skip
@@ -652,7 +667,14 @@ export function validateCmsFile(content: string, fileName: string): CmsFileValid
       const logoutFull = rowState.logout;
       const logoutDateMatchesRow = formatDateDDMMYYYY(logoutFull) === formatDateDDMMYYYY(rowDate);
       const logoutDateIsNextDay = formatDateDDMMYYYY(logoutFull) === formatDateDDMMYYYY(nextDate);
-      if (!logoutDateMatchesRow && !logoutDateIsNextDay) {
+      // A logout two or more days after the row's date (login 24th, logout 27th) is a real CMS
+      // session the agent never closed — not a corrupt file. It used to reject the WHOLE upload
+      // batch; it is now accepted with a warning, flagged spansMultipleDays by parseCmsPunches, and
+      // every reconciliation row it touches is force-held (MULTI_DAY_CMS_SESSION). A logout before
+      // the row's date still falls through to the "earlier than login" reject below.
+      if (!logoutDateMatchesRow && !logoutDateIsNextDay && logoutSpansMultipleDays(dateText, logoutFull)) {
+        warnings.push(`"${fileName}" row ${r + 1}: Login ID ${row[1].trim()} logged in ${formatDateDDMMYYYY(loginFull)} ${formatTimeHHMM(loginFull)} and logged out ${formatDateDDMMYYYY(logoutFull)} ${formatTimeHHMM(logoutFull)}`);
+      } else if (!logoutDateMatchesRow && !logoutDateIsNextDay) {
         return { ok: false, reason: `"${fileName}" row ${r + 1}: Logout Time (Full) is not on the row's date or the next day.` };
       }
       // Both logout fields populated -> they must name the same minute.
@@ -673,7 +695,7 @@ export function validateCmsFile(content: string, fileName: string): CmsFileValid
   if (punches.length !== dataRowCount) {
     return { ok: false, reason: `"${fileName}" contains ${dataRowCount} data row(s), but only ${punches.length} produced complete login/logout punches.` };
   }
-  return { ok: true, punches };
+  return { ok: true, punches, warnings };
 }
 
 /** Merge multiple CMS punch batches, dropping exact duplicates by login/logout identity. */

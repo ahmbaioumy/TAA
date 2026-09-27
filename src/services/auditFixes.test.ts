@@ -1097,4 +1097,54 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
   }
 }
 
+// ---------------------------------------------------------------------------
+// Multi-day CMS session (2026-09-27): a logout two or more days after the row's date (login 24th,
+// logout 27th — the agent never logged out) used to reject the WHOLE CMS upload batch. It is now
+// accepted with a non-blocking warning and flagged spansMultipleDays (the engine force-holds every
+// row it touches — see featureCompletion/regression tests). Everything else stays strict.
+// ---------------------------------------------------------------------------
+{
+  const hdr = 'CMS Login Logout Report\nGenerated,x\nDate,Login ID,Login Time,Logout Time,Login Time,Logout Time\n';
+  const filler = '24/09/2026,11111,08:00,16:00,24/09/2026 08:00:00,24/09/2026 16:00:00\n';
+  const file = (row: string) => `${hdr}${filler}${row}\n`;
+  const multiDay = '24/09/2026,52854,08:00,10:00,24/09/2026 08:00:12,27/09/2026 10:00:40';
+
+  const v = validateCmsFile(file(multiDay), 'CMS_26.csv');
+  assert.ok(v.ok, 'multi-day session must NOT reject the file');
+  if (v.ok) {
+    assert.equal(v.warnings.length, 1, 'multi-day session: exactly one warning');
+    assert.match(v.warnings[0], /CMS_26\.csv.*row 5.*52854.*24\/09\/2026 08:00.*27\/09\/2026 10:00/, 'warning names file, row, login and both datetimes');
+    const p = v.punches.find(x => x.LoginID === '52854');
+    assert.equal(p?.spansMultipleDays, true, 'validator punch flagged spansMultipleDays');
+    assert.equal(v.punches.find(x => x.LoginID === '11111')?.spansMultipleDays, undefined, 'the other agent in the same file is untouched');
+    assert.equal(v.punches.length, 2, 'every row of the file is loaded');
+  }
+  assert.equal(parseCmsPunches(file(multiDay)).find(x => x.LoginID === '52854')?.spansMultipleDays, true, 'parser agrees with validator');
+
+  // Not flagged: same-day, next-day cross-midnight (full column), and time-only cross-midnight.
+  for (const [label, row] of [
+    ['same-day', '24/09/2026,52854,08:00,16:00,24/09/2026 08:00:12,24/09/2026 16:00:40'],
+    ['next-day cross-midnight', '24/09/2026,52854,22:00,06:00,24/09/2026 22:00:12,25/09/2026 06:00:40'],
+    ['next-day 23:59', '24/09/2026,52854,08:00,23:59,24/09/2026 08:00:12,25/09/2026 23:59:59'],
+    ['time-only cross-midnight', '24/09/2026,52854,22:00,06:00,24/09/2026 22:00:12,'],
+  ]) {
+    const r = validateCmsFile(file(row), 'x.csv');
+    assert.ok(r.ok && r.warnings.length === 0, `${label}: validates with no warning`);
+    assert.equal(parseCmsPunches(file(row)).find(x => x.LoginID === '52854')?.spansMultipleDays, undefined, `${label}: not flagged`);
+  }
+  // Boundary: 00:00:00 two days later is flagged (it is no longer on the row's date or the next).
+  const boundary = validateCmsFile(file('24/09/2026,52854,22:00,00:00,24/09/2026 22:00:12,26/09/2026 00:00:00'), 'x.csv');
+  assert.ok(boundary.ok && boundary.warnings.length === 1, 'logout at 00:00 two days later: accepted with a warning');
+
+  // Still strict: logout before the row's date / before login, and layout errors, reject the file.
+  const before = validateCmsFile(file('24/09/2026,52854,08:00,10:00,24/09/2026 08:00:12,22/09/2026 10:00:40'), 'x.csv');
+  assert.ok(!before.ok, 'logout on a date BEFORE the row must still reject');
+  const beforeLogin = validateCmsFile(file('24/09/2026,52854,08:00,07:00,24/09/2026 08:00:12,24/09/2026 07:00:40'), 'x.csv');
+  assert.ok(!beforeLogin.ok && /earlier than login/.test(beforeLogin.reason), 'logout earlier than login must still reject');
+  const minuteConflict = validateCmsFile(file('24/09/2026,52854,08:00,09:00,24/09/2026 08:00:12,27/09/2026 10:00:40'), 'x.csv');
+  assert.ok(!minuteConflict.ok && /Logout Time conflicts/.test(minuteConflict.reason), 'multi-day row whose two logout columns disagree must still reject');
+  const badHeader = validateCmsFile(`CMS\nx\nDate,Login ID,Logout Time,Login Time,Login Time,Logout Time\n${multiDay}\n`, 'x.csv');
+  assert.ok(!badHeader.ok, 'a wrong column layout must still reject');
+}
+
 console.log('Audit remediation regression tests passed.');

@@ -1032,7 +1032,7 @@ const RELEASABLE_HOLD_REASONS_INV7: HoldReasonCode[] = [
   'TECHNICAL_SEGMENT_COVERS_VARIANCE',
 ];
 {
-  assert.equal(FORCED_HOLD_REASONS.size, 21, 'FORCED_HOLD_REASONS must stay at exactly 21 codes (invariant 7)');
+  assert.equal(FORCED_HOLD_REASONS.size, 22, 'FORCED_HOLD_REASONS must stay at exactly 22 codes (invariant 7)');
   assert.equal(RELEASABLE_HOLD_REASONS_INV7.length, 7, 'the releasable set must stay at exactly 7 codes (invariant 7)');
 
   for (const code of RELEASABLE_HOLD_REASONS_INV7) {
@@ -1046,8 +1046,8 @@ const RELEASABLE_HOLD_REASONS_INV7: HoldReasonCode[] = [
   }
 
   const allHoldReasonCodesInv7 = [...Array.from(FORCED_HOLD_REASONS), ...RELEASABLE_HOLD_REASONS_INV7];
-  assert.equal(allHoldReasonCodesInv7.length, 28, 'forced (21) + releasable (7) must equal the full HoldReasonCode union (28) — zero orphans');
-  assert.equal(new Set(allHoldReasonCodesInv7).size, 28, 'no code may be counted twice across the two sets');
+  assert.equal(allHoldReasonCodesInv7.length, 29, 'forced (22) + releasable (7) must equal the full HoldReasonCode union (29) — zero orphans');
+  assert.equal(new Set(allHoldReasonCodesInv7).size, 29, 'no code may be counted twice across the two sets');
 }
 // Compile-time-only exhaustiveness guard (enforced by `npm run lint`, i.e.
 // `tsc --noEmit`, not at runtime): the bracketed, non-distributive `extends`
@@ -1055,7 +1055,7 @@ const RELEASABLE_HOLD_REASONS_INV7: HoldReasonCode[] = [
 // union is present in RELEASABLE_HOLD_REASONS_INV7 union'd with
 // FORCED_HOLD_REASONS's own runtime membership (represented here by
 // listing FORCED_HOLD_REASONS's codes literally, kept identical to
-// holdReasons.ts by the runtime assert.equal(..., 21) above). If
+// holdReasons.ts by the runtime assert.equal(..., 22) above). If
 // types/taa.ts ever adds a new HoldReasonCode member without also adding it
 // to one of the two lists, this line stops compiling — an orphan can never
 // silently ship.
@@ -1067,7 +1067,7 @@ type ForcedHoldReasonCodesInv7 =
   | 'AMBIGUOUS_OVERLAPPING_REMOVAL_DURATION' | 'NO_LOGIN_MANUAL_REVIEW_CONFIGURED'
   | 'CONTESTED_SINGLE_PUNCH' | 'INVALID_ASPECT_DATETIME' | 'INVALID_CONFIG_TIME'
   | 'INVALID_CONFIG_VALUE' | 'FLEX_SCHEDULE_OUTSIDE_WINDOW' | 'NEGATIVE_NET_SCHEDULE_MINUTES'
-  | 'CONFLICTING_IDENTITY_RECORD' | 'STILL_CLOCKED_IN' | 'ABSENT_MARKED_BUT_ATTENDED';
+  | 'CONFLICTING_IDENTITY_RECORD' | 'STILL_CLOCKED_IN' | 'MULTI_DAY_CMS_SESSION' | 'ABSENT_MARKED_BUT_ATTENDED';
 type AllListedHoldReasonCodesInv7 = ForcedHoldReasonCodesInv7 | (typeof RELEASABLE_HOLD_REASONS_INV7)[number];
 type _Inv7ExhaustivenessGuard = [HoldReasonCode] extends [AllListedHoldReasonCodesInv7] ? true : never;
 const _inv7ExhaustivenessGuard: _Inv7ExhaustivenessGuard = true;

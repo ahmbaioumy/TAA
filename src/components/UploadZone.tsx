@@ -179,6 +179,7 @@ export function UploadZone({
       setHasUploadedRaw(prev => ({ ...prev, cms: true }));
 
       const batchPunches: CMSPunch[] = [];
+      const batchWarnings: string[] = [];
       for (const { name, text } of decodedByFile) {
         const result = validateCmsFile(text, name);
         if ('reason' in result) {
@@ -186,10 +187,23 @@ export function UploadZone({
           return; // reject the whole batch — no state changes
         }
         batchPunches.push(...result.punches);
+        batchWarnings.push(...result.warnings);
       }
 
       onDataChanged();
       setCmsPunches(dedupeCmsPunches([...cmsPunches, ...batchPunches]));
+      // Non-blocking: sessions whose logout lands 2+ days after the row's date are real CMS
+      // data (the agent never logged out), so the batch is loaded; the engine force-holds every
+      // row they touch (MULTI_DAY_CMS_SESSION). Shown once, after the punches are merged.
+      if (batchWarnings.length > 0) {
+        const shown = batchWarnings.slice(0, 10);
+        const more = batchWarnings.length - shown.length;
+        alert(
+          `CMS loaded. ${batchWarnings.length} session(s) span more than one day (no logout until 2+ days later). ` +
+          `The report rows these sessions cover will be held for manual review:\n\n` +
+          shown.join('\n') + (more > 0 ? `\n+${more} more` : ''),
+        );
+      }
     } catch (err) {
       console.error('Failed to parse CMS file(s)', err);
       alert(`Error reading file: ${err instanceof Error ? err.message : String(err)}`);

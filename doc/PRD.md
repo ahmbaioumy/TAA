@@ -171,6 +171,17 @@ flowchart LR
 | Col 5 | `Login Time` | Datetime (`DD/MM/YYYY HH:MM:SS`) | `02/08/2026 18:01:46` | **Actual First Login** | Full punch login timestamp. **Primary column for shift start attendance**. |
 | Col 6 | `Logout Time` | Datetime (`DD/MM/YYYY HH:MM:SS`) | `02/08/2026 18:01:49` | **Actual Last Logout** | Full punch logout timestamp. **Primary column for shift end attendance**. |
 
+- **Multi-day sessions (2026-09-27):** a row whose logout lands **two or more calendar days** after
+  its `Date` (e.g. login 24th, logout 27th — the agent never logged out) is real CMS data, not a
+  corrupt file. The upload **accepts** it (it used to reject the whole multi-file batch), shows a
+  non-blocking notice listing each such row, and flags the punch `spansMultipleDays`. Every
+  reconciliation row the session touches — the shift it was attributed to, plus every real shift
+  window it overlaps for that Login ID — is force-held `MULTI_DAY_CMS_SESSION` (verdict
+  `MULTI_DAY_CMS_SESSION`, action `MANUAL_REVIEW_REQUIRED`): never auto-Present, never auto-Absent.
+  Leave-day synthetic windows are held only if the session was attributed to them. A logout
+  before the row's date, before the login, or disagreeing between the two logout columns still
+  rejects the file.
+
 ---
 
 #### Sheet 5: `ASPECT_segment_Definition.xlsx` (Segment Dictionary)
@@ -225,7 +236,7 @@ flowchart LR
 - All payroll timestamps are local wall-clock values. The parser accepts only `DD/MM/YYYY[ HH:MM[:SS]]` and `YYYY-MM-DD[ HH:MM[:SS]]`; it never falls back to browser/locale-native date guessing.
 - Calendar components and clock ranges are validated exactly. Impossible dates, `24:00`, minute/second values above 59, reversed ASPECT spans, and incomplete schedule-defining spans fail closed.
 - A documented bare ASPECT date remains valid and means `00:00:00`. Empty timestamps remain valid only for structural/no-effect leave entries; additions and removals require usable time evidence, except a completely bare (no duration, no timestamps) removal, or a bare non-schedule-defining addition, which is a **full-day segment** (decision 2026-09-21): its duration is the day's own scheduled duration (SHIFT + OT + COVER); `defaultFullDaySegmentDurationMinutes` (480) is only the fallback when the day has no schedule. A full-day removal takes whatever is left of the schedule after every timed removal (scheduled hours 0, window collapsed) and raises the soft, reviewer-releasable `FULL_DAY_REMOVAL_ON_SCHEDULED_DAY` hold; a full-day addition never adds on top of an existing schedule. `REMOVAL_SEGMENT_DURATION_UNKNOWN` now only fires for a removal with a half-specified timestamp pair. Codes left `NO_EFFECT` (ANNUAL, P/H-LV, SICK...) are untouched, and LEAVE HR is still never defaulted.
-- Invalid Cognos `SIGN IN DATE` values are locked as `UNPARSEABLE_SIGN_IN_DATE`; malformed ASPECT schedule values are locked as `INVALID_ASPECT_DATETIME`; invalid Config Registry clocks are locked as `INVALID_CONFIG_TIME`; invalid or contradictory CMS files are rejected as a whole before punches enter reconciliation. Only `MISMATCH_FOUND` may be manually included; all evidence-integrity holds stay locked until corrected and recalculated.
+- Invalid Cognos `SIGN IN DATE` values are locked as `UNPARSEABLE_SIGN_IN_DATE`; malformed ASPECT schedule values are locked as `INVALID_ASPECT_DATETIME`; invalid Config Registry clocks are locked as `INVALID_CONFIG_TIME`; invalid or contradictory CMS files are rejected as a whole before punches enter reconciliation (a session spanning two or more days is NOT invalid — it is loaded and every row it covers is locked as `MULTI_DAY_CMS_SESSION`; see Sheet 4). Only `MISMATCH_FOUND` may be manually included; all evidence-integrity holds stay locked until corrected and recalculated.
 
 ---
 

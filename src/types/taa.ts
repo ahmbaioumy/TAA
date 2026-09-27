@@ -121,6 +121,7 @@ export type HoldReasonCode =
   | 'DURATION_TEXT_REPAIRED_FROM_TIMESTAMPS'
   | 'FULL_DAY_REMOVAL_ON_SCHEDULED_DAY'
   | 'STILL_CLOCKED_IN'
+  | 'MULTI_DAY_CMS_SESSION'
   | 'ABSENT_MARKED_BUT_ATTENDED'
   | 'TECHNICAL_SEGMENT_COVERS_VARIANCE';
 
@@ -297,6 +298,11 @@ export interface CMSPunch {
   LogoutDateTime: Date | null;
   /** True exactly when LogoutDateTime is null for the open-logout-sentinel reason above. */
   stillClockedIn?: boolean;
+  /** True when the logout falls two or more calendar days after the row's Date (e.g. login
+   * 24th, logout 27th — the agent never logged out, or CMS closed the session late). Kept as
+   * real evidence rather than rejecting the whole CMS file, but no attendance verdict is drawn
+   * from it: every row it touches gets the forced MULTI_DAY_CMS_SESSION hold. */
+  spansMultipleDays?: boolean;
 }
 
 export interface SegmentDefinition {

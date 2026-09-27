@@ -37,6 +37,7 @@ export const HOLD_REASON_TEXT: Record<HoldReasonCode, string> = {
   CONFLICTING_IDENTITY_RECORD: 'More than one Identity Master row shares this employee\'s EMP_ID with disagreeing details. The first record was kept rather than silently taking the last — correct the duplicate in the Identity Master file and recalculate.',
   DURATION_TEXT_REPAIRED_FROM_TIMESTAMPS: 'A segment on this day had a non-blank but malformed DURATION value (not a valid whole number of minutes) — the duration shown was derived from the segment\'s own START/STOP timestamps instead. The computed number is very likely correct, but the source ASPECT data still needs fixing; releasable via reviewer approval, never a forced hold.',
   STILL_CLOCKED_IN: 'A CMS punch for this login has no logout recorded (the export\'s open-logout sentinel) — this employee was still clocked in when the CMS export was generated. Attendance cannot be computed until a later export supplies a real logout; never guessed as "now" or any other time.',
+  MULTI_DAY_CMS_SESSION: 'A CMS session for this login runs from one day to a logout two or more days later (e.g. login on the 24th, logout on the 27th) — the agent never logged out, or CMS closed the session late. Its login/logout cannot show whether the agent worked the days in between, so no attendance verdict was drawn for any shift the session covers. Verify attendance manually; never auto-marked Present or Absent.',
   // No longer emitted (2026-09-27): an already-absent day with CMS attendance is now NO_ACTION, not held. Kept so saved results that carry this code still render.
   ABSENT_MARKED_BUT_ATTENDED: 'ASPECT already tags this employee-day as absent (a configured existing-absence-marker code), but CMS shows attendance at or above the leave-login threshold. TAA never auto-reverses a recorded absence — confirm with the source documentation before correcting ASPECT.',
   TECHNICAL_SEGMENT_COVERS_VARIANCE: 'Every variance this row charged (late login, early logout, late logout, or an unattended cover window) falls inside a configured technical segment (e.g. TECH/TECH2) on this day, within the configured tolerance — the correction below is already built but held rather than exported, since technical time is paid. Releasable via reviewer approval, never a forced hold.',
@@ -68,6 +69,9 @@ export const FORCED_HOLD_REASONS: ReadonlySet<HoldReasonCode> = new Set<HoldReas
   'NEGATIVE_NET_SCHEDULE_MINUTES',
   'CONFLICTING_IDENTITY_RECORD',
   'STILL_CLOCKED_IN',
+  // A CMS session spanning two or more days proves neither attendance nor absence for the
+  // shifts it covers — missing evidence, so only a reviewer with the source data may decide.
+  'MULTI_DAY_CMS_SESSION',
   // ASPECT already marks this day absent, but CMS shows real attendance. Removing a
   // recorded absence restores a day's pay — that decision belongs to a reviewer with
   // the source documents, never an automatic release into the payroll CSV.
