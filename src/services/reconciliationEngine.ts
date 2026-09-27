@@ -38,7 +38,7 @@ import { isForcedHoldReason, HOLD_REASON_TEXT } from './holdReasons';
 import { ConfigValidationIssue, validateConfigForRun } from './configRegistry';
 import { recomputeDaySchedule, DayScheduleRecompute, isCodeInConfiguredSet, isWorkingDaySegment, resolveSegmentMinutes } from './scheduleRecompute';
 import { attributePunches, ScheduledWindow, AttributionResult } from './punchAttribution';
-import { compareCognosRow, ComparisonContext, isCognosSentinel } from './cognosComparison';
+import { compareCognosRow, ComparisonContext, isCognosSentinel, logoutOutcomeMatchesTaa } from './cognosComparison';
 import { applyEmailTemplate, computeEmailStatusByRowId, findManagerEmail, planEmailDraftActions, resolveEmailRecipient } from './emailDrafts';
 import { verificationFailedCheckSummary } from './verificationAudit';
 
@@ -750,6 +750,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // Cognos gap to prove a COVER shortfall in Cognos's own figure can't cross a band.
     let gateLateLogoutChargeMin = 0;
     let gateCoverShortfallMin = 0;
+    // Same-basis logout gate (2026-09-27): the attended-COVER credit the Late Logout charge used,
+    // and the early-logout anchor (flex reduced-office-hours target, else the effective end), so
+    // a disputed Cognos LEFT EARLY can be re-evaluated on exactly TAA's own basis.
+    let gateLateLogoutCreditMin = 0;
+    let gateEarlyAnchorDt: Date | null = null;
     let firedCommunicationRule: CommunicationRule = 'NA';
     let emailTemplateKey: EmailTemplateKey = 'generic';
     let forcedHoldReason: HoldReasonCode | undefined;
@@ -1198,6 +1203,8 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (downstream) {
           earlyMin = downstream.earlyMin;
           gateLateLogoutChargeMin = downstream.lateLogoutMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = downstream.lateLogoutCreditedMin ?? 0;
+          gateEarlyAnchorDt = earlyCheckEndDt ?? newEndDt;
           if (downstream.earlyMin > 0) {
             varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', earlyCheckEndDt ? 'reduced office hours target (actual login + required minutes, capped at shift end)' : 'flex shifted end (snapped start + SHIFT effective duration)', earlyCheckEndDt ?? newEndDt, actualLastLogoutDt, downstream.earlyMin, lookupRule('Early Logout', downstream.earlyMin), referenceDay));
           } else if (downstream.lateLogoutMin > 0) {
@@ -1379,6 +1386,8 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (downstream) {
           earlyMin = downstream.earlyMin;
           gateLateLogoutChargeMin = downstream.lateLogoutMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = downstream.lateLogoutCreditedMin ?? 0;
+          gateEarlyAnchorDt = earlyCheckEndDt ?? newEndDt;
           if (downstream.earlyMin > 0) {
             varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', earlyCheckEndDt ? 'reduced office hours target (actual login + required minutes, capped at shift end)' : 'flex shifted end (cutoff + SHIFT effective duration)', earlyCheckEndDt ?? newEndDt, actualLastLogoutDt, downstream.earlyMin, lookupRule('Early Logout', downstream.earlyMin), referenceDay));
           } else if (downstream.lateLogoutMin > 0) {
@@ -1691,6 +1700,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             : 0;
           const lateLogoutChargeMin = Math.max(0, lateLogoutMin - lateLogoutCreditedMin);
           gateLateLogoutChargeMin = lateLogoutChargeMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = lateLogoutCreditedMin;
           const lateLogoutCreditNote = lateLogoutCreditedMin > 0
             ? `${lateLogoutMin}m gross - ${lateLogoutCreditedMin}m attended cover credited = ${lateLogoutChargeMin}m remaining`
             : '';
@@ -1881,6 +1891,38 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       ? null
       : leaveDurationValues.reduce((acc, m) => acc + m, 0);
 
+    // Same-basis logout evaluator (2026-09-27) — see ComparisonContext.logoutPolicy. Mirrors the
+    // engine's own Early/Late Logout decision for any candidate logout instant: early logout is
+    // measured to the early anchor, late logout from the release/nursing-adjusted end minus the
+    // attended-COVER credit. A candidate BEFORE TAA's real logout may have attended less of the
+    // COVER, so both the full credit and the credit reduced by that gap are tried; the outcome
+    // is proved only when every reachable credit gives the same rule.
+    const logoutOutcomeKey = (r?: PolicyRuleItem): string => (r && r.action !== 'NO_ACTION') ? r.id : 'none';
+    const logoutMeasurement = [...varianceMeasurements].reverse().find(m => m.label === 'EARLY_LOGOUT' || m.label === 'LATE_LOGOUT');
+    const taaLogoutOutcome = logoutMeasurement && logoutMeasurement.bandId && logoutMeasurement.bandAction && logoutMeasurement.bandAction !== 'NO_ACTION'
+      ? logoutMeasurement.bandId : 'none';
+    const policyEndDt = effectiveEndDt;
+    const earlyAnchorForGate = gateEarlyAnchorDt ?? effectiveEndDt;
+    const logoutPolicy = policyEndDt && earlyAnchorForGate ? {
+      taaOutcome: taaLogoutOutcome,
+      outcomesAt: (logout: Date): Set<string> => {
+        const out = new Set<string>();
+        if (logout.getTime() < earlyAnchorForGate.getTime()) {
+          out.add(logoutOutcomeKey(lookupRule('Early Logout', diffInMinutes(logout, earlyAnchorForGate))));
+          return out;
+        }
+        if (logout.getTime() <= policyEndDt.getTime()) { out.add('none'); return out; }
+        const gross = diffInMinutes(policyEndDt, logout);
+        const shortBy = actualLastLogoutDt && logout.getTime() < actualLastLogoutDt.getTime()
+          ? Math.ceil((actualLastLogoutDt.getTime() - logout.getTime()) / 60000) : 0;
+        for (const credit of [gateLateLogoutCreditMin, Math.max(0, gateLateLogoutCreditMin - shortBy)]) {
+          const charge = Math.max(0, gross - credit);
+          out.add(charge > 0 ? logoutOutcomeKey(lookupRule('Late Logout', charge)) : 'none');
+        }
+        return out;
+      },
+    } : undefined;
+
     const comparisonCtx: ComparisonContext = {
       rawStart: rawStartDt,
       rawEnd: rawEndDt,
@@ -1911,6 +1953,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       // Only when the flex algorithm actually evaluated this row (tagged AND inside the
       // expected start window) — an out-of-window flex row runs standard rules and is held.
       isFlex: isFlex && !isFlexOutOfWindow,
+      logoutPolicy,
     };
     const comparisonResult = compareCognosRow(cognos, comparisonCtx, config);
     if (comparisonResult.mismatchColumns.length > 0) {
@@ -1947,9 +1990,13 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       cognosAgreeForcedFalseWithNoMismatch = true;
       // Kill switch (releaseProvenSafeHolds, Step 3 2026-09-24): when off, this exemption
       // never fires and the row stays held as before Phase 2.
+      // Same-basis fix (2026-09-27): the Cognos figure must ALSO reach TAA's own logout outcome
+      // on TAA's basis — a -1 vs 0 raw pair (MATCH within tolerance) with a 60m trailing RLS is
+      // 59m vs 60m past the release-adjusted end: no action vs ABSENT, never provably safe.
       defect1AutoExempt = config.releaseProvenSafeHolds
         && leftEarlyVal !== null
-        && Math.abs(leftEarlyVal) <= recompute.trailingReleaseMinutes + recompute.nursingMinutes + config.comparisonToleranceMinutes;
+        && Math.abs(leftEarlyVal) <= recompute.trailingReleaseMinutes + recompute.nursingMinutes + config.comparisonToleranceMinutes
+        && logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal);
     } else if (cognos['LEAVE TYPE'] === 'U-ABSENT' && (verdict === 'PRESENT' || verdict === 'LATE')) {
       disagreeReason = 'DEFECT_2_NIGHT_SHIFT_PUNCH_LOST';
     } else if (isLeaveDay && (cognos['LEAVE TYPE'] === 'U-ABSENT' || parseInt(cognos['LATE START'] || '0', 10) === -480) && verdict === 'LEAVE_EXCLUDED') {
@@ -1989,12 +2036,14 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // lookupPolicyRule(minutes) outcome, so this gate never fires for a flex row (stays
     // MISMATCH, held as before).
     if (!isFlex && comparisonResult.mismatchColumns.includes('LEFT EARLY') && leftEarlyVal !== null && leftEarlyVal < 0) {
-      // Same inputs as defect1AutoExempt: Cognos's raw-window figure minus the
-      // trailing release/nursing minutes it ignores, floored at 0.
-      const cognosEarly = Math.max(0, -leftEarlyVal - (recompute.trailingReleaseMinutes + recompute.nursingMinutes));
-      const cognosRule = lookupRule('Early Logout', cognosEarly);
-      const taaRule = lookupRule('Early Logout', earlyMin);
-      if (sameActionOutcome(cognosRule, taaRule)) actionNeutralColumns.set('LEFT EARLY', actionOrNoAction(taaRule));
+      // Same-basis fix (2026-09-27): Cognos's figure is re-evaluated through TAA's own anchors,
+      // release/nursing adjustment, COVER credit, tier and BOTH Early and Late Logout rules
+      // (logoutOutcomeMatchesTaa) — the old test clamped it to an early-logout minute count and
+      // so called Cognos -1 vs TAA +1 with a 60m trailing RLS "NO_ACTION" while TAA exported an
+      // ABSENT for 61m late logout (59m on Cognos's figure: no action).
+      if (logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal)) {
+        actionNeutralColumns.set('LEFT EARLY', (logoutMeasurement?.bandAction && logoutMeasurement.bandAction !== 'NO_ACTION') ? logoutMeasurement.bandAction as TaaActionCode : 'NO_ACTION');
+      }
     }
     if (!isFlex && comparisonResult.mismatchColumns.includes('LATE START')) {
       const lateStartVal = parseSignedMinutes(cognos['LATE START'] || '');
@@ -2031,7 +2080,10 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
           const coverRuleGap = gateCoverShortfallMin > 0 ? lookupRule('Cover Not Attended', Math.max(0, gateCoverShortfallMin - gap)) : undefined;
           const lateLogoutNeutral = sameActionOutcome(lateLogoutRuleBase, lateLogoutRuleGap);
           const coverNeutral = gateCoverShortfallMin <= 0 || sameActionOutcome(coverRuleBase, coverRuleGap);
-          if (lateLogoutNeutral && coverNeutral) actionNeutralColumns.set('SCH DURATION', actionOrNoAction(lateLogoutRuleBase));
+          // Label with the outcome the gap could actually have moved: the cover rule when a COVER
+          // shortfall exists (the old label always named the Late Logout action — "NO_ACTION"
+          // on a row that exports a Cover-Not-Attended ABSENT).
+          if (lateLogoutNeutral && coverNeutral) actionNeutralColumns.set('SCH DURATION', gateCoverShortfallMin > 0 ? actionOrNoAction(coverRuleBase) : actionOrNoAction(lateLogoutRuleBase));
         }
       }
     }
@@ -2532,6 +2584,8 @@ interface DownstreamResult {
   /** Trace-only explanation for a finding that deliberately took no action (the "already
    * actioned" rule) — appended to ruleFired by the caller even on NO_ACTION_REQUIRED. */
   infoNote?: string;
+  /** Attended-COVER minutes credited against the gross late-logout time (0 when none). */
+  lateLogoutCreditedMin?: number;
 }
 
 /**
@@ -3202,6 +3256,7 @@ function evaluateEarlyAndLateLogout(params: {
   // flex callers happen to pass the same Date for both parameters. Confirmed policy is the
   // release-adjusted (effective) end, so both paths now use it.
   let lateLogoutCreditNote = '';
+  let lateLogoutCreditedMin = 0;
   if (actualLastLogoutDt.getTime() > effectiveEndDt.getTime()) {
     const grossMin = diffInMinutes(effectiveEndDt, actualLastLogoutDt);
     // WP1 (D1/D2): same credit as the standard branch — attended cover time is make-up time, never
@@ -3210,6 +3265,7 @@ function evaluateEarlyAndLateLogout(params: {
       ? creditedCoverMinutes(params.creditableCovers, effectiveEndDt, actualLastLogoutDt, params.presence)
       : 0;
     lateLogoutMin = Math.max(0, grossMin - creditedMin);
+    lateLogoutCreditedMin = creditedMin;
     if (creditedMin > 0) lateLogoutCreditNote = `${grossMin}m gross - ${creditedMin}m attended cover credited = ${lateLogoutMin}m remaining`;
   }
 
@@ -3227,7 +3283,7 @@ function evaluateEarlyAndLateLogout(params: {
         // carries the explanation into the row's trace.
         const recordedLogoff = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', earlyMin);
         if (recordedLogoff) {
-          return { verdict: 'EARLY_LOGOUT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout action', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, infoNote: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${recordedLogoff.note}` };
+          return { verdict: 'EARLY_LOGOUT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout action', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, lateLogoutCreditedMin, infoNote: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${recordedLogoff.note}` };
         }
         rowCorrections.push({
           Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(actualLastLogoutDt),
@@ -3245,17 +3301,17 @@ function evaluateEarlyAndLateLogout(params: {
         ) ?? placeCoverSegment(pfNo, nomDateStr, earlyMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, params.reducedHoursCoverExcluded ?? false);
         if (cover) {
           rowCorrections.push(cover);
-          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
+          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
         }
         const coverBlockReason = describeCoverPlacementFailure(nomDateStr, segmentsByEmp.get(pfNo) || [], config, processingDate, params.reducedHoursCoverExcluded ?? false);
-        return { verdict: 'EARLY_LOGOUT', action: 'MANUAL_REVIEW_REQUIRED', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText} (cover target day has a schedule integrity problem: ${coverBlockReason})`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, holdReason: coverBlockReason, earlyMin, lateLogoutMin };
+        return { verdict: 'EARLY_LOGOUT', action: 'MANUAL_REVIEW_REQUIRED', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText} (cover target day has a schedule integrity problem: ${coverBlockReason})`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, holdReason: coverBlockReason, earlyMin, lateLogoutMin, lateLogoutCreditedMin };
       }
       if (rule.action === 'ABSENT_SEGMENT') {
         rowCorrections.push({
           Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'ABSENT', nominateDate: nomDateStr, SegmentDate: '',
           SegmentStarttime: '', Segmentduration: '', Memo: `TAA Early Logout ${earlyMin}m Exceeds Threshold`,
         });
-        return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
+        return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
       }
     }
   } else if (lateLogoutMin > 0) {
@@ -3266,10 +3322,10 @@ function evaluateEarlyAndLateLogout(params: {
         SegmentStarttime: '', Segmentduration: '', Memo: `TAA Late Logout ${lateLogoutMin}m${lateLogoutCreditNote ? ` (${lateLogoutCreditNote})` : ''}`,
       });
       // WP5/B5/B15 — gross window, matching the standard path's own choice (comment above).
-      return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `Late Logout (${tier}): ${lateLogoutMin}m past the release-adjusted end ${formatTimeHHMM(effectiveEndDt)} (rostered end ${formatTimeHHMM(rawEndDt)})${lateLogoutCreditNote ? ` [${lateLogoutCreditNote}]` : ''} -> ${rule.actionText}`, chargedVarianceMin: lateLogoutMin, communicationRule: rule.communication, emailTemplateKey: 'late_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'LATE_LOGOUT', start: effectiveEndDt, end: actualLastLogoutDt } };
+      return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `Late Logout (${tier}): ${lateLogoutMin}m past the release-adjusted end ${formatTimeHHMM(effectiveEndDt)} (rostered end ${formatTimeHHMM(rawEndDt)})${lateLogoutCreditNote ? ` [${lateLogoutCreditNote}]` : ''} -> ${rule.actionText}`, chargedVarianceMin: lateLogoutMin, communicationRule: rule.communication, emailTemplateKey: 'late_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'LATE_LOGOUT', start: effectiveEndDt, end: actualLastLogoutDt } };
     }
   }
-  return { verdict: 'PRESENT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout issue', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin };
+  return { verdict: 'PRESENT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout issue', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, lateLogoutCreditedMin };
 }
 
 /**

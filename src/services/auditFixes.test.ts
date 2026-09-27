@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG, validateConfigForRun } from './configRegistry';
 import { recomputeDaySchedule } from './scheduleRecompute';
-import { runReconciliation, resolveNoLoginDecision, flexLateBandFires, isFlexScheduleWithinExpectedWindow, ReconciliationInput } from './reconciliationEngine';
+import { runReconciliation, resolveNoLoginDecision, flexLateBandFires, isFlexScheduleWithinExpectedWindow, ReconciliationInput, lookupPolicyRule } from './reconciliationEngine';
 import { runUnseenPunchAudit } from './unseenPunchAudit';
 import { SUITE_RUN_DATE } from './regressionSuite';
 import { simulateScenario } from './scenarioGuide';
@@ -491,6 +491,18 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     attendanceVerdictLabel: '', leaveMinutes: null, isLeaveDay: false,
   };
   const find = (cols: ColumnComparison[], name: string) => cols.find(c => c.column === name);
+  // Same-basis logout evaluator as the engine builds it (ComparisonContext.logoutPolicy), for a
+  // plain OPS day with no release and no COVER: effective end = raw end, no credit. Without it
+  // compareCognosRow can never prove a LEFT EARLY release (fail closed, case c2).
+  const simpleLogoutPolicy = (rawEnd: Date, actualLogout: Date): ComparisonContext['logoutPolicy'] => {
+    const key = (r?: PolicyRuleItem) => (r && r.action !== 'NO_ACTION') ? r.id : 'none';
+    const outcomeOf = (logout: Date): string => {
+      const diff = Math.floor((logout.getTime() - rawEnd.getTime()) / 60000);
+      if (diff < 0) return key(lookupPolicyRule(DEFAULT_CONFIG, 'Early Logout', 'OPS', -diff));
+      return diff > 0 ? key(lookupPolicyRule(DEFAULT_CONFIG, 'Late Logout', 'OPS', diff)) : 'none';
+    };
+    return { taaOutcome: outcomeOf(actualLogout), outcomesAt: (logout: Date) => new Set([outcomeOf(logout)]) };
+  };
 
   // (a) Cognos SIGIN IN/OUT hours apart but SIGNIN DURATION="00:00", and the CMS evidence
   // behind them is two instantaneous swipes (staffedMinutes ~0) -> MATCH, not held.
@@ -523,17 +535,27 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
   }
 
   // (c) LEFT EARLY: Cognos says 3, TAA recomputes 11 — both non-negative, both below the
-  // live "Late Logout" policy boundary -> same band -> NOT_COMPARABLE, not MISMATCH.
+  // live "Late Logout" policy boundary -> same outcome on TAA's basis -> NOT_COMPARABLE.
   {
     const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': '15:11', 'LEFT EARLY': '3' });
     const ctx: ComparisonContext = {
       ...baseCtx,
       rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:11:00`),
+      logoutPolicy: simpleLogoutPolicy(dt(`${D} 15:00:00`), dt(`${D} 15:11:00`)),
     };
     const result = compareCognosRow(cognos, ctx, DEFAULT_CONFIG);
     const comp = find(result.comparisons, 'LEFT EARLY');
     assert.equal(comp?.status, 'NOT_COMPARABLE', '(c) both agree "not left early" below the policy boundary -> NOT_COMPARABLE');
     assert.ok(!result.mismatchColumns.includes('LEFT EARLY'), '(c) must not hold the row on LEFT EARLY');
+  }
+
+  // (c2) Same figures but no same-basis evaluator in the context: nothing proves the two
+  // figures reach the same payroll outcome, so LEFT EARLY stays MISMATCH (fail closed).
+  {
+    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': '15:11', 'LEFT EARLY': '3' });
+    const ctx: ComparisonContext = { ...baseCtx, rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:11:00`) };
+    const comp = find(compareCognosRow(cognos, ctx, DEFAULT_CONFIG).comparisons, 'LEFT EARLY');
+    assert.equal(comp?.status, 'MISMATCH', '(c2) no logoutPolicy -> no proof -> stays MISMATCH');
   }
 
   // (d) LEFT EARLY: Cognos says -10 (left early), TAA recomputes +5 (stayed late) — a sign
@@ -559,10 +581,17 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     );
     const belowBoundary = lateLogoutMin - 5;
     const aboveBoundary = lateLogoutMin + 5;
-    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': `15:${String(aboveBoundary).padStart(2, '0')}`, 'LEFT EARLY': String(belowBoundary) });
+    // Real clock times (15:00 + N minutes). The previous `15:${aboveBoundary}` built "15:65" —
+    // an unparseable time, so actualLastLogout was null and this case passed without ever
+    // comparing a straddling pair.
+    const rawEnd = dt(`${D} 15:00:00`);
+    const logout = new Date(rawEnd.getTime() + aboveBoundary * 60000);
+    const hhmm = `${String(logout.getHours()).padStart(2, '0')}:${String(logout.getMinutes()).padStart(2, '0')}`;
+    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': hhmm, 'LEFT EARLY': String(belowBoundary) });
     const ctx: ComparisonContext = {
       ...baseCtx,
-      rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:${String(aboveBoundary).padStart(2, '0')}:00`),
+      rawEnd, actualLastLogout: logout,
+      logoutPolicy: simpleLogoutPolicy(rawEnd, logout),
     };
     const result = compareCognosRow(cognos, ctx, DEFAULT_CONFIG);
     const comp = find(result.comparisons, 'LEFT EARLY');

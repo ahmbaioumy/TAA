@@ -8638,6 +8638,58 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       calculationTrace: [`ruleFired: ${row.details.ruleFired}`],
     });
   }
+  {
+    // reg-189 (2026-09-27, Astra P1): a disputed LEFT EARLY must be judged on TAA's OWN basis —
+    // release-adjusted end, COVER credit, tier and BOTH Early/Late Logout rules. Before the fix,
+    // (a) the positive same-band downgrade compared the two RAW figures (29 vs 31, both < 60)
+    // and (b) Gate A clamped Cognos -1 to "0m early = NO_ACTION"; both auto-released an ABSENT
+    // for 61m late logout that Cognos's own figure puts at 59m (no action).
+    const day = '27/08/2026';
+    const mk = (pf: string, rls: [string, string] | null, logout: string, leftEarly: string, sch: string, releaseSafe = true) => {
+      const segs: AspectSegment[] = [
+        { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 07:00:00`, STOP_MOMENT: `${day} 15:00:00`, DURATION: 480 },
+      ];
+      if (rls) segs.push({ EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'RLS', START_MOMENT: `${day} ${rls[0]}:00`, STOP_MOMENT: `${day} ${rls[1]}:00`,
+        DURATION: (Number(rls[1].slice(0, 2)) * 60 + Number(rls[1].slice(3))) - (Number(rls[0].slice(0, 2)) * 60 + Number(rls[0].slice(3))) });
+      const cognos: CognosRecord = {
+        'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'ECS', 'PF NO': pf, NAME: 'Same Basis Agent', 'LOGIN ID': `L${pf}`,
+        DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': sch, 'SIGNIN DURATION': '',
+        'SIGIN IN': '07:00', 'SIGIN OUT': logout, 'LATE START': '0', 'LEFT EARLY': leftEarly, 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+      };
+      const punches: CMSPunch[] = [
+        { Date: day, LoginID: `L${pf}`, LoginDateTime: makeDt(day, '07:00:00'), LogoutDateTime: makeDt(day, `${logout}:00`) },
+        { Date: day, LoginID: 'sentinel-export-open', LoginDateTime: makeDt(day, '23:30:00'), LogoutDateTime: makeDt(day, '23:30:03') },
+      ];
+      return runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs,
+        aspectIdentities: [{ EMP_ID: pf, EMP_LAST_NAME: 'Same Basis Agent', EMP_SORT_NAME: 'SAME BASIS AGENT' }], cmsPunches: punches,
+        config: { ...config, releaseProvenSafeHolds: releaseSafe } }).rows[0];
+    };
+    const leOf = (r: ReturnType<typeof mk>) => r.columnComparisons.find(c => c.column === 'LEFT EARLY')?.status;
+    const a = mk('7000189', ['14:30', '15:00'], '15:31', '29', '7:30');   // positive branch straddle
+    const b = mk('7000190', ['14:00', '15:00'], '15:01', '-1', '7:0');    // Gate A straddle
+    const c = mk('7000191', null, '15:22', '20', '8:0');                  // same side, no action: still released
+    const e = mk('7000192', null, '16:12', '70', '8:0');                  // both ABSENT: still released
+    const f = mk('7000193', ['14:30', '15:00'], '15:31', '29', '7:30', false); // kill switch off
+    const checks: [string, boolean][] = [
+      ['a: RLS 14:30, out 15:31, Cognos 29 vs 31 -> 59m vs 61m -> held', a.TAA_ACTION === 'ABSENT_SEGMENT' && a.holdReason === 'MISMATCH_FOUND' && leOf(a) === 'MISMATCH'],
+      ['b: RLS 14:00, out 15:01, Cognos -1 vs +1 -> 59m vs 61m -> held', b.TAA_ACTION === 'ABSENT_SEGMENT' && b.holdReason === 'MISMATCH_FOUND' && leOf(b) === 'MISMATCH'],
+      ['c: 20 vs 22 (no rule either way) -> still released', !c.holdReason && leOf(c) === 'NOT_COMPARABLE'],
+      ['e: 70 vs 72 (ABSENT either way) -> still released', !e.holdReason && e.TAA_ACTION === 'ABSENT_SEGMENT' && leOf(e) === 'NOT_COMPARABLE'],
+      ['f: kill switch off -> held', f.holdReason === 'MISMATCH_FOUND'],
+    ];
+    results.push({
+      id: 'reg-189', name: 'Disputed LEFT EARLY Judged On TAA\'s Own Basis: A Pair Straddling Late Logout After The Release Stays Held', category: 'Held-review reduction — same-basis release (2026-09-27)',
+      inputDescription: 'SHIFT 07:00-15:00 with trailing RLS 14:30 / 14:00; CMS logout 15:31 / 15:01; Cognos LEFT EARLY 29 / -1; controls 20 vs 22 and 70 vs 72 with no RLS; kill switch off',
+      cognosFlawedVerdict: 'Cognos measures LEFT EARLY from the raw end, ignoring the release — its figure is 59m on TAA\'s basis, TAA\'s is 61m',
+      expectedVerdict: '(a)(b) held MISMATCH_FOUND, LEFT EARLY MISMATCH; (c)(e) released NOT_COMPARABLE; (f) held',
+      expectedAction: 'ABSENT_SEGMENT held for review, never auto-exported',
+      actualVerdict: checks.map(([l, ok]) => `${ok ? 'ok' : 'NO'} ${l.split(':')[0]}`).join('; '),
+      actualAction: a.TAA_ACTION,
+      passed: checks.every(([, ok]) => ok),
+      payrollImpact: 'An unpaid-absence correction is no longer exported without review when Cognos\'s own figure, on the same basis, would fire no action',
+      calculationTrace: checks.map(([l, ok]) => `${ok ? 'PASS' : 'FAIL'} ${l}`),
+    });
+  }
 
   // ==========================================================================
   // Reduced Office Hours (Flex, one configured weekday) — roh-01..roh-12

@@ -93,6 +93,30 @@ export interface ComparisonContext {
    * roster in DUTY1 and measures LATE START / LEFT EARLY against it, while ASPECT holds the
    * flex-moved shift TAA measures against by design — see the flex roster downgrade below. */
   isFlex?: boolean;
+  /** Same-basis logout evaluator (2026-09-27), built by the engine from its OWN anchors: the
+   * release/nursing-adjusted end (Late Logout), the early-logout anchor, the attended-COVER
+   * credit and the employee's tier. Given a candidate last-logout instant it returns every
+   * policy outcome key (a rule id, or 'none') the Early/Late Logout rules could reach — more
+   * than one only when the COVER credit for that instant cannot be pinned down. taaOutcome is
+   * the outcome TAA itself reached. Absent => no release is ever proved from LEFT EARLY. */
+  logoutPolicy?: { outcomesAt: (logout: Date) => Set<string>; taaOutcome: string };
+}
+
+/** True only when Cognos's LEFT EARLY figure, placed on TAA's own basis (same anchors,
+ * release/nursing adjustment, COVER credit, tier and rules — ctx.logoutPolicy), reaches exactly
+ * the policy outcome TAA reached, AND the evaluator reproduces TAA's outcome from TAA's own
+ * logout (self-check: if it can't, nothing is proved and the row stays held). Replaces the old
+ * raw-figure band test, which compared two raw figures against the Late Logout band and so
+ * missed a pair straddling it on the release-adjusted basis (Cognos 29 vs TAA 31 with a 30m
+ * trailing RLS = 59m vs 61m: no action vs ABSENT). */
+export function logoutOutcomeMatchesTaa(ctx: ComparisonContext, cognosLeftEarlyMin: number): boolean {
+  const policy = ctx.logoutPolicy;
+  if (!policy || !ctx.rawEnd || !ctx.actualLastLogout) return false;
+  const own = policy.outcomesAt(ctx.actualLastLogout);
+  if (own.size !== 1 || !own.has(policy.taaOutcome)) return false;
+  const cognosLogout = new Date(ctx.rawEnd.getTime() + cognosLeftEarlyMin * 60000);
+  const theirs = policy.outcomesAt(cognosLogout);
+  return theirs.size === 1 && theirs.has(policy.taaOutcome);
 }
 
 export interface RowComparisonResult {
@@ -245,30 +269,6 @@ function timeOfDayColumn(column: string, cognosRaw: string, recomputedDt: Date |
  * exactly -LEAVE HR (e.g. -480 for an 8h day, -540 for a 9h day) — a fixed
  * value list alone silently misses any other shift length (e.g. -600).
  */
-
-/**
- * Which "Late Logout" policy band a minute value falls in, expressed as a plain
- * index (0 = below every configured boundary, 1 = at/above the lowest boundary,
- * 2 = at/above the second-lowest, ...) rather than a specific rule id — the LEFT
- * EARLY same-direction downgrade (compareCognosRow) only needs to know whether
- * two values sit on the SAME side of every boundary, not which rule either one
- * maps to. Built from every 'Late Logout' policyRules entry's own minMinutes
- * across every tier (never a hardcoded 60 — see rule-lateout-ops/rule-lateout-ofcr
- * in configRegistry.ts, both minMinutes 60 today, but this reads the LIVE config
- * so a tuned threshold is respected automatically). No configured 'Late Logout'
- * rule at all collapses to a single band (index 0 for everyone) — with zero
- * boundaries, no policy outcome differs anywhere, so nothing to split on.
- */
-function lateLogoutBandIndex(config: ConfigRegistry, minutes: number): number {
-  const boundaries = Array.from(new Set(
-    config.policyRules.filter(r => r.segmentType === 'Late Logout').map(r => r.minMinutes ?? 0)
-  )).sort((a, b) => a - b);
-  let idx = 0;
-  for (const boundary of boundaries) {
-    if (minutes >= boundary) idx++;
-  }
-  return idx;
-}
 
 /**
  * True when Cognos itself claims the employee attended this day — any of
@@ -675,12 +675,11 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
   // see behind a CMS punch export. Only downgrades a genuine MISMATCH (both values parsed
   // as real numbers); a sign flip (one side says "late/left early", the other doesn't) or
   // both-negative values are a real disagreement and stay MISMATCH untouched. For LEFT
-  // EARLY specifically, also require both values to land on the same side of the live
-  // config "Late Logout" policy boundary (lateLogoutBandIndex below) — this deliberately
-  // does NOT hardcode 60: see configRegistry.ts's rule-lateout-ops/rule-lateout-ofcr
-  // (minMinutes 60, unbounded above; both tiers currently share this value). Below that
-  // boundary neither Cognos's nor TAA's number changes any policy outcome (no rule fires
-  // either way), so a 3-vs-11 gap there is exactly as cosmetic as a 200-vs-206 gap above
+  // EARLY specifically, also require both values to reach the SAME policy outcome on TAA's
+  // own basis (logoutOutcomeMatchesTaa: release-adjusted end, COVER credit, the employee's
+  // tier and the live Early/Late Logout rules — never a hardcoded 60). The earlier raw-figure
+  // band test missed pairs that straddle the band once the trailing release is applied
+  // (reg-189). A 3-vs-11 gap below the band is still as cosmetic as a 200-vs-206 gap above
   // it. LATE START has no analogous "arriving early" band in the live config (Late Login
   // only bands LATE arrivals, i.e. the negative side of this column) — arriving early by
   // any amount never fires a rule, so same-direction non-negative alone is enough there.
@@ -711,13 +710,15 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
     const leftEarlyComparison = minutesColumn('LEFT EARLY', cognos['LEFT EARLY'] || '', cognosLeftEarly, tol, parseSignedInt, false, true, !ctx.hasAnyCmsData);
     // Kill switch (releaseProvenSafeHolds, Step 3 2026-09-24): when off, this same-direction
     // downgrade never fires and the row stays MISMATCH/held as before Phase 1.
-    const sameLateLogoutBand =
+    // Same-basis fix (2026-09-27): the two figures must reach the same policy outcome on TAA's
+    // own basis (logoutOutcomeMatchesTaa), not merely sit in the same raw Late Logout band.
+    const sameLogoutOutcome =
       config.releaseProvenSafeHolds &&
       leftEarlyRawVal !== null && cognosLeftEarly !== null && leftEarlyRawVal >= 0 && cognosLeftEarly >= 0 &&
-      lateLogoutBandIndex(config, leftEarlyRawVal) === lateLogoutBandIndex(config, cognosLeftEarly);
+      logoutOutcomeMatchesTaa(ctx, leftEarlyRawVal);
     comparisons.push(
-      leftEarlyComparison.status === 'MISMATCH' && sameLateLogoutBand
-        ? { ...leftEarlyComparison, status: 'NOT_COMPARABLE', note: 'Both agree: not late / no early leave — the minute gap comes from Cognos session data TAA cannot see' }
+      leftEarlyComparison.status === 'MISMATCH' && sameLogoutOutcome
+        ? { ...leftEarlyComparison, status: 'NOT_COMPARABLE', note: 'Same logout outcome on TAA\'s basis (release-adjusted end, COVER credit, tier rules) — the minute gap comes from Cognos session data TAA cannot see' }
         : leftEarlyComparison
     );
   }

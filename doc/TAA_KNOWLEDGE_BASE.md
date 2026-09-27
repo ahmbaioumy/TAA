@@ -1482,6 +1482,23 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    ABSENT band untouched. Side effect: a held row of this shape now falls in the `NO_ACTION`
    Hold Policy action group. `reg-142`/`reg-143` rewritten, `reg-187`/`reg-188` added.
 
+2. **Same-basis LEFT EARLY release (Astra P1).** Both automatic LEFT EARLY releases — the
+   positive same-band downgrade (`cognosComparison.ts`) and Gate A's negative branch — used a
+   basis the policy never charges on: the first compared the two RAW figures to the Late Logout
+   band, the second clamped Cognos to an early-logout count. With a trailing release this
+   auto-exported an ABSENT that Cognos's own figure would not fire: RLS 14:30-15:00, logout
+   15:31, Cognos 29 vs TAA 31 = 59m vs 61m past the release-adjusted end (no action vs ABSENT);
+   likewise RLS 14:00-15:00, logout 15:01, Cognos -1 vs +1. Now one evaluator built by the engine
+   from its own anchors (`ComparisonContext.logoutPolicy`: release-adjusted end, early anchor,
+   attended-COVER credit — tried at full and at reduced credit when Cognos's logout is earlier —,
+   tier, live Early/Late Logout rules) decides both, plus `defect1AutoExempt`, via
+   `logoutOutcomeMatchesTaa`; it must also reproduce TAA's own outcome or nothing is released.
+   `lateLogoutBandIndex` (pooled every tier's minMinutes, ignored maxMinutes/gaps) removed.
+   Pairs on the same side still release (20 vs 22, 70 vs 72). Gate B's note now names the cover
+   action when a COVER shortfall exists (it printed the Late Logout action, e.g. "NO_ACTION" on a
+   Cover-Not-Attended ABSENT). `reg-189`; `auditFixes.test.ts` (c2) added and (e) fixed — it built
+   "15:65", an unparseable time, so it had never compared a straddling pair.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):
