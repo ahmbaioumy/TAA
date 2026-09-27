@@ -1377,14 +1377,14 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
 
           {/* Section -> OPS Mailbox routing. EMAIL_OPS cases are pooled per
               Section into one digest email addressed to that Section's
-              mailbox; a Section with no row here has its cases HELD -
-              reported but not drafted, never re-routed to the employee. */}
+              mailbox; a Section with no row here goes to defaultOpsMailbox, or (if
+              that is blank) has its cases HELD - reported but not drafted, never re-routed to the employee. */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h5 className="text-xs font-bold text-slate-900">Section &rarr; OPS Mailbox Routing</h5>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  EMAIL_OPS cases are pooled by Section into one digest email per Section's mailbox. A Section with no mapping here has its cases held back and reported — they are never re-routed to the employee, because the rule that fired chose OPS specifically to keep the employee and their line manager off the recipient list.
+                  EMAIL_OPS cases are pooled by Section into one digest email per Section's mailbox. A Section with no mapping here goes to the default OPS mailbox; if that is blank, its cases are held back and reported — they are never re-routed to the employee, because the rule that fired chose OPS specifically to keep the employee and their line manager off the recipient list.
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -1410,6 +1410,18 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
               </div>
             </div>
 
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-slate-700">Default OPS mailbox</span>
+              <span className="block text-[10px] text-slate-500 mb-1">Used for any Section with no mapping below — its digest is still one email per Section per day. Leave blank to hold unmapped Sections instead.</span>
+              <input
+                type="text"
+                value={localConfig.defaultOpsMailbox}
+                placeholder="e.g. ops@thecontactcentre.ae"
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, defaultOpsMailbox: e.target.value }))}
+                className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono text-xs shadow-2xs focus:outline-none focus:border-sky-500"
+              />
+            </label>
+
             <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200 text-[10px]">
@@ -1423,7 +1435,7 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
                   {localConfig.sectionMailboxMap.length === 0 && (
                     <tr>
                       <td colSpan={3} className="py-3 px-3.5 text-slate-400 font-sans">
-                        No Section mailboxes configured — every EMAIL_OPS case will be held back and left undrafted.
+                        No Section mailboxes configured — every EMAIL_OPS case goes to the default OPS mailbox (or is held if that is blank).
                       </td>
                     </tr>
                   )}

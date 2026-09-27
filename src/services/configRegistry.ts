@@ -509,6 +509,7 @@ export const DEFAULT_CONFIG: ConfigRegistry = {
   cognosDropPatterns: [], // Default empty §6.6 — no silent drops until user opts in
 
   sectionMailboxMap: [],
+  defaultOpsMailbox: 'ops@thecontactcentre.ae', // Fallback for Sections with no mapping — blank to hold them instead
   employeeManagerMap: [],
   emailCorporateDomains: ['thecontactcentre.ae'],
 
@@ -745,6 +746,13 @@ function normalizePreservedFilePatterns(raw: unknown): string[] {
 // carry the old single `opsMailbox` string field; there's no way to guess
 // which section it belonged to, so it's simply dropped (ConfigRegistry no
 // longer has that field in its type).
+// Missing (older saved/exported config) -> the shipped default; an explicit
+// blank string is kept blank (the operator chose to hold unmapped Sections).
+export function normalizeDefaultOpsMailbox(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_CONFIG.defaultOpsMailbox;
+  return raw.trim();
+}
+
 export function normalizeSectionMailboxMap(raw: unknown): SectionMailboxRule[] {
   if (!Array.isArray(raw)) return [];
   const bySection = new Map<string, string>();
@@ -966,6 +974,7 @@ export function loadConfigRegistry(): ConfigRegistry {
         cognosDropPatterns: normalizeCognosDropPatterns(parsed.cognosDropPatterns),
         cmsPreservedFilePatterns: normalizePreservedFilePatterns(parsed.cmsPreservedFilePatterns),
         sectionMailboxMap: normalizeSectionMailboxMap(parsed.sectionMailboxMap),
+        defaultOpsMailbox: normalizeDefaultOpsMailbox(parsed.defaultOpsMailbox),
         employeeManagerMap: normalizeEmployeeManagerMap(parsed.employeeManagerMap),
       };
     }
@@ -1018,6 +1027,7 @@ export function importConfigFromJson(jsonStr: string): ConfigRegistry {
     cognosDropPatterns: normalizeCognosDropPatterns(parsed.cognosDropPatterns),
     cmsPreservedFilePatterns: normalizePreservedFilePatterns(parsed.cmsPreservedFilePatterns),
     sectionMailboxMap: normalizeSectionMailboxMap(parsed.sectionMailboxMap),
+    defaultOpsMailbox: normalizeDefaultOpsMailbox(parsed.defaultOpsMailbox),
     employeeManagerMap: normalizeEmployeeManagerMap(parsed.employeeManagerMap),
     // Hold Policy (doc/PRD.md §Hold Policy) — sanitizeHoldPolicy drops malformed ids and
     // any id pointing at a locked (forced/evidence) reason or MANUAL_REVIEW_REQUIRED, so a

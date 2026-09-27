@@ -93,6 +93,7 @@ const ALL_CONFIG_KEYS: Record<keyof ConfigRegistry, true> = {
   shiftToOt2ConversionCode: true,
   cognosDropPatterns: true,
   sectionMailboxMap: true,
+  defaultOpsMailbox: true,
   employeeManagerMap: true,
   emailCorporateDomains: true,
   emailTemplates: true,
@@ -205,6 +206,7 @@ const mutated: ConfigRegistry = {
   shiftToOt2ConversionCode: 'CUSTOM_OT2_CONVERSION_CODE',
   cognosDropPatterns: [{ column: 'CUSTOM_COLUMN', values: ['CUSTOM*'] }],
   sectionMailboxMap: [{ section: 'CUSTOMSECTION', mailbox: 'custom@example.test' }],
+  defaultOpsMailbox: 'custom-default-ops@example.test',
   employeeManagerMap: [{ empId: 'EMP999', managerEmail: 'manager999@example.test' }],
   emailCorporateDomains: ['custom-domain.test'],
   emailTemplates: {
