@@ -38,7 +38,7 @@ import { isForcedHoldReason, HOLD_REASON_TEXT } from './holdReasons';
 import { ConfigValidationIssue, validateConfigForRun } from './configRegistry';
 import { recomputeDaySchedule, DayScheduleRecompute, isCodeInConfiguredSet, isWorkingDaySegment, resolveSegmentMinutes } from './scheduleRecompute';
 import { attributePunches, ScheduledWindow, AttributionResult } from './punchAttribution';
-import { compareCognosRow, ComparisonContext, isCognosSentinel } from './cognosComparison';
+import { compareCognosRow, ComparisonContext, isCognosSentinel, logoutOutcomeMatchesTaa } from './cognosComparison';
 import { applyEmailTemplate, computeEmailStatusByRowId, findManagerEmail, planEmailDraftActions, resolveEmailRecipient } from './emailDrafts';
 import { verificationFailedCheckSummary } from './verificationAudit';
 
@@ -451,7 +451,6 @@ function buildInvalidConfigOutput(
  * Cognos's own numbers.
  */
 export function runReconciliation(input: ReconciliationInput): ReconciliationOutput {
-  consumedRecordedCovers = new WeakSet<AspectSegment>();
   const { cognosRecords, aspectSegments, aspectIdentities, cmsPunches, config, verificationAudit, processingDate } = input;
 
   const identityMap = new Map<string, AspectIdentity>();
@@ -751,6 +750,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // Cognos gap to prove a COVER shortfall in Cognos's own figure can't cross a band.
     let gateLateLogoutChargeMin = 0;
     let gateCoverShortfallMin = 0;
+    // Same-basis logout gate (2026-09-27): the attended-COVER credit the Late Logout charge used,
+    // and the early-logout anchor (flex reduced-office-hours target, else the effective end), so
+    // a disputed Cognos LEFT EARLY can be re-evaluated on exactly TAA's own basis.
+    let gateLateLogoutCreditMin = 0;
+    let gateEarlyAnchorDt: Date | null = null;
     let firedCommunicationRule: CommunicationRule = 'NA';
     let emailTemplateKey: EmailTemplateKey = 'generic';
     let forcedHoldReason: HoldReasonCode | undefined;
@@ -1199,12 +1203,15 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (downstream) {
           earlyMin = downstream.earlyMin;
           gateLateLogoutChargeMin = downstream.lateLogoutMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = downstream.lateLogoutCreditedMin ?? 0;
+          gateEarlyAnchorDt = earlyCheckEndDt ?? newEndDt;
           if (downstream.earlyMin > 0) {
             varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', earlyCheckEndDt ? 'reduced office hours target (actual login + required minutes, capped at shift end)' : 'flex shifted end (snapped start + SHIFT effective duration)', earlyCheckEndDt ?? newEndDt, actualLastLogoutDt, downstream.earlyMin, lookupRule('Early Logout', downstream.earlyMin), referenceDay));
           } else if (downstream.lateLogoutMin > 0) {
             varianceMeasurements.push(traceMeasurement('LATE_LOGOUT', 'flex shifted end (snapped start + SHIFT effective duration)', newEndDt, actualLastLogoutDt, downstream.lateLogoutMin, lookupRule('Late Logout', downstream.lateLogoutMin), referenceDay));
           }
           if (downstream.varianceInterval) firedVarianceIntervals.push(downstream.varianceInterval); // WP5/B5/B15
+          if (downstream.infoNote) ruleFired += ` | ${downstream.infoNote}`;
         }
         // Only let the downstream check override the verdict when it actually
         // found an early/late-logout issue — its "nothing fired" result must
@@ -1296,15 +1303,21 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         lateMin = diffInMinutes(cutoffDt, actualFirstLoginDt!);
         const bandFires = flexLateBandFires(config, tier, lateMin);
         varianceMeasurements.push(traceMeasurement('FLEX_PAST_CUTOFF', `flex cutoff ${cutoffTimeStr} (not the scheduled start)`, cutoffDt, actualFirstLoginDt, lateMin, lookupRule('Late Login', lateMin), referenceDay));
-        chargedVarianceMin = lateMin;
+        // "Already actioned" rule (see findAlreadyRecordedIncident): a LATE ASPECT already holds
+        // for this day means no LATE and no COVER — only the shift-update pair (a schedule move,
+        // not the late itself) is still emitted, so the row reads as a plain flex shift update.
+        const recordedFlexLate = bandFires ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin) : null;
+        chargedVarianceMin = recordedFlexLate ? 0 : lateMin;
 
         verdict = 'LATE';
-        action = 'SHIFT_UPDATE_AND_LATE_COVER_FLEX';
-        resultCategory = 'LATE_AND_COVER_ADDED';
+        action = recordedFlexLate ? 'SHIFT_UPDATE_FLEX' : 'SHIFT_UPDATE_AND_LATE_COVER_FLEX';
+        resultCategory = recordedFlexLate ? 'SHIFT_CHANGED' : 'LATE_AND_COVER_ADDED';
         disagreeReason = 'MATCH';
-        ruleFired = `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
+        ruleFired = recordedFlexLate
+          ? `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m -> ${recordedFlexLate.note}`
+          : `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
         firedCommunicationRule = 'NA'; // flex over-cutoff Late+Cover carries no email per §4.1 band-1 rows
-        pushFiredAction({ actionCode: action, communicationRule: firedCommunicationRule, emailTemplateKey, varianceMin: lateMin, note: ruleFired });
+        pushFiredAction({ actionCode: action, communicationRule: firedCommunicationRule, emailTemplateKey, varianceMin: chargedVarianceMin, note: ruleFired });
 
         rowCorrections.push({
           Code: config.shiftUpdateOriginalCode, ID: pfNo, SegmentCode: SHIFT_CHANGE_SEGMENT_CODE, nominateDate: nomDateStr, SegmentDate: formatSegmentDate(rawStartDt),
@@ -1333,21 +1346,16 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
           reducedOfficeHoursApplied = true;
         }
 
-        if (bandFires) {
+        if (bandFires && !recordedFlexLate) {
           // WP5/B5/B15 — flex bypasses minute bands by default, so "bandFires" (not a
           // lookupRule() != NO_ACTION check) is this branch's own definition of "the
           // action actually fired".
           firedVarianceIntervals.push({ label: 'FLEX_PAST_CUTOFF', start: cutoffDt, end: actualFirstLoginDt! });
-          const recordedFlexLate = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', cutoffDt, lateMin, config, processingDate);
-          if (recordedFlexLate) {
-            ruleFired += ` [${recordedFlexLate.note}]`;
-          } else {
-            rowCorrections.push({
-              Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(cutoffDt),
-              SegmentStarttime: cutoffTimeStr, Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Flex Late Login ${lateMin}m past ${cutoffTimeStr}`,
-            });
-          }
-          if (!recordedFlexLate?.hasCover) {
+          rowCorrections.push({
+            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(cutoffDt),
+            SegmentStarttime: cutoffTimeStr, Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Flex Late Login ${lateMin}m past ${cutoffTimeStr}`,
+          });
+          {
             const coverPlacement = tryPlaceSameDayCover(
               pfNo, nomDateStr, lateMin, 'afterEnd',
               { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt: null, shiftEndDt: newEndDt },
@@ -1378,12 +1386,15 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (downstream) {
           earlyMin = downstream.earlyMin;
           gateLateLogoutChargeMin = downstream.lateLogoutMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = downstream.lateLogoutCreditedMin ?? 0;
+          gateEarlyAnchorDt = earlyCheckEndDt ?? newEndDt;
           if (downstream.earlyMin > 0) {
             varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', earlyCheckEndDt ? 'reduced office hours target (actual login + required minutes, capped at shift end)' : 'flex shifted end (cutoff + SHIFT effective duration)', earlyCheckEndDt ?? newEndDt, actualLastLogoutDt, downstream.earlyMin, lookupRule('Early Logout', downstream.earlyMin), referenceDay));
           } else if (downstream.lateLogoutMin > 0) {
             varianceMeasurements.push(traceMeasurement('LATE_LOGOUT', 'flex shifted end (cutoff + SHIFT effective duration)', newEndDt, actualLastLogoutDt, downstream.lateLogoutMin, lookupRule('Late Logout', downstream.lateLogoutMin), referenceDay));
           }
           if (downstream.varianceInterval) firedVarianceIntervals.push(downstream.varianceInterval); // WP5/B5/B15
+          if (downstream.infoNote) ruleFired += ` | ${downstream.infoNote}`;
         }
         if (downstream && downstream.resultCategory !== 'NO_ACTION_REQUIRED') {
           ruleFired += ` | ${downstream.ruleFired}`;
@@ -1547,7 +1558,16 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (lateMin > 0) {
           const lateRule = lookupRule('Late Login', lateMin);
           varianceMeasurements.push(traceMeasurement('LATE_LOGIN', 'effectiveStart (raw start plus any leading release)', effectiveStartDt, actualFirstLoginDt, lateMin, lateRule, referenceDay));
-          if (lateRule && lateRule.action !== 'NO_ACTION') {
+          // "Already actioned" rule: a LATE_AND_COVER finding whose LATE ASPECT already holds
+          // takes no further action at all (see findAlreadyRecordedIncident). The ABSENT band
+          // is never affected — only the LATE_AND_COVER outcome is.
+          const recordedLate = lateRule && lateRule.action === 'LATE_AND_COVER'
+            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin)
+            : null;
+          if (recordedLate) {
+            if (verdict === 'PRESENT') verdict = 'LATE';
+            ruleFiredParts.push(`${lateRule!.segmentType} (${tier}): ${lateMin}m -> ${recordedLate.note}`);
+          } else if (lateRule && lateRule.action !== 'NO_ACTION') {
             chargedVarianceMin = lateMin;
             ruleFiredParts.push(`${lateRule.segmentType} (${tier}): ${lateMin}m -> ${lateRule.actionText}`);
             // WP5/B5/B15 — pushed only once the rule actually fires (never for a
@@ -1557,16 +1577,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             if (lateRule.action === 'LATE_AND_COVER') {
               applyMoreSevere('LATE_AND_COVER_ADDED', 'LATE_AND_COVER', 'LATE', lateRule.communication, 'late_login_absence');
               pushFiredAction({ actionCode: 'LATE_AND_COVER', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: lateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
-              const recordedLate = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', effectiveStartDt, lateMin, config, processingDate);
-              if (recordedLate) {
-                ruleFiredParts[ruleFiredParts.length - 1] += ` [${recordedLate.note}]`;
-              } else {
-                rowCorrections.push({
-                  Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: effectiveStartDt ? formatSegmentDate(effectiveStartDt) : nomDateStr,
-                  SegmentStarttime: effectiveStartDt ? formatTimeHHMM(effectiveStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Late Login ${lateMin}m`,
-                });
-              }
-              if (!recordedLate?.hasCover) {
+              rowCorrections.push({
+                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: effectiveStartDt ? formatSegmentDate(effectiveStartDt) : nomDateStr,
+                SegmentStarttime: effectiveStartDt ? formatTimeHHMM(effectiveStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Late Login ${lateMin}m`,
+              });
+              {
                 const lateCover = tryPlaceSameDayCover(
                   pfNo, nomDateStr, lateMin, 'afterEnd',
                   { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt, shiftEndDt: effectiveEndDt },
@@ -1620,7 +1635,14 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         if (earlyMin > 0) {
           const earlyRule = lookupRule('Early Logout', earlyMin);
           varianceMeasurements.push(traceMeasurement('EARLY_LOGOUT', 'effectiveEnd (raw end minus trailing release/nursing)', effectiveEndDt, actualLastLogoutDt, earlyMin, earlyRule, referenceDay));
-          if (earlyRule && earlyRule.action !== 'NO_ACTION') {
+          // "Already actioned" rule — mirror of the Late Login branch above.
+          const recordedEarly = earlyRule && earlyRule.action === 'LOGOFF_AND_COVER'
+            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', earlyMin)
+            : null;
+          if (recordedEarly) {
+            if (verdict === 'PRESENT') verdict = 'EARLY_LOGOUT';
+            ruleFiredParts.push(`${earlyRule!.segmentType} (${tier}): ${earlyMin}m -> ${recordedEarly.note}`);
+          } else if (earlyRule && earlyRule.action !== 'NO_ACTION') {
             // D-A fix: ADD this rule's minutes to whatever Late Login already
             // charged, instead of keeping only whichever fired first — a row
             // with both a late login AND an early logout must report the
@@ -1632,16 +1654,11 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             if (earlyRule.action === 'LOGOFF_AND_COVER') {
               applyMoreSevere('LATE_AND_COVER_ADDED', 'LOGOFF_AND_COVER', 'EARLY_LOGOUT', earlyRule.communication, 'early_logout_absence');
               pushFiredAction({ actionCode: 'LOGOFF_AND_COVER', communicationRule: earlyRule.communication, emailTemplateKey: 'early_logout_absence', varianceMin: earlyMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
-              const recordedEarly = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', actualLastLogoutDt, earlyMin, config, processingDate);
-              if (recordedEarly) {
-                ruleFiredParts[ruleFiredParts.length - 1] += ` [${recordedEarly.note}]`;
-              } else {
-                rowCorrections.push({
-                  Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: actualLastLogoutDt ? formatSegmentDate(actualLastLogoutDt) : nomDateStr,
-                  SegmentStarttime: actualLastLogoutDt ? formatTimeHHMM(actualLastLogoutDt) : '15:00', Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
-                });
-              }
-              if (!recordedEarly?.hasCover) {
+              rowCorrections.push({
+                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: actualLastLogoutDt ? formatSegmentDate(actualLastLogoutDt) : nomDateStr,
+                SegmentStarttime: actualLastLogoutDt ? formatTimeHHMM(actualLastLogoutDt) : '15:00', Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
+              });
+              {
                 const earlyCover = tryPlaceSameDayCover(
                   pfNo, nomDateStr, earlyMin, 'beforeStart',
                   { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt, shiftEndDt: effectiveEndDt },
@@ -1683,6 +1700,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
             : 0;
           const lateLogoutChargeMin = Math.max(0, lateLogoutMin - lateLogoutCreditedMin);
           gateLateLogoutChargeMin = lateLogoutChargeMin; // Phase 4 gate capture (see declaration above)
+          gateLateLogoutCreditMin = lateLogoutCreditedMin;
           const lateLogoutCreditNote = lateLogoutCreditedMin > 0
             ? `${lateLogoutMin}m gross - ${lateLogoutCreditedMin}m attended cover credited = ${lateLogoutChargeMin}m remaining`
             : '';
@@ -1873,6 +1891,62 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       ? null
       : leaveDurationValues.reduce((acc, m) => acc + m, 0);
 
+    // Same-basis logout evaluator (2026-09-27) — see ComparisonContext.logoutPolicy. Mirrors the
+    // engine's own Early/Late Logout decision for any candidate logout instant: early logout is
+    // measured to the early anchor, late logout from the release/nursing-adjusted end minus the
+    // attended-COVER credit. A candidate BEFORE TAA's real logout may have attended less of the
+    // COVER, so both the full credit and the credit reduced by that gap are tried; the outcome
+    // is proved only when every reachable credit gives the same rule.
+    const logoutOutcomeKey = (r?: PolicyRuleItem): string => (r && r.action !== 'NO_ACTION') ? r.id : 'none';
+    const logoutMeasurement = [...varianceMeasurements].reverse().find(m => m.label === 'EARLY_LOGOUT' || m.label === 'LATE_LOGOUT');
+    const taaLogoutOutcome = logoutMeasurement && logoutMeasurement.bandId && logoutMeasurement.bandAction && logoutMeasurement.bandAction !== 'NO_ACTION'
+      ? logoutMeasurement.bandId : 'none';
+    const policyEndDt = effectiveEndDt;
+    const earlyAnchorForGate = gateEarlyAnchorDt ?? effectiveEndDt;
+    // The last-logout time also decides Rule 7 (Cover Not Attended) for every ASPECT COVER on
+    // the day — a disputed logout can turn an attended COVER into an unattended one (ABSENT).
+    // Same function the engine itself runs, so it needs no separate self-check.
+    const coverOutcomeAt = (logout: Date): string => evaluateCoverNotAttended(recompute.coverSegments, actualFirstLoginDt, logout, tier, config)
+      .map(f => f.rule.id).sort().join(',');
+    // Plausible ends Cognos may have measured LEFT EARLY from: the raw end, then the end of each
+    // COVER chained contiguously onto it (touching or overlapping the running end).
+    const cognosEndCandidates: Date[] = rawEndDt ? [rawEndDt] : [];
+    if (rawEndDt) {
+      let chainEnd = rawEndDt;
+      const chainCovers = recompute.coverSegments
+        .map(seg => ({ st: seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null, sp: seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null }))
+        .filter((c): c is { st: Date; sp: Date } => !!c.st && !!c.sp)
+        .sort((x, y) => x.st.getTime() - y.st.getTime());
+      for (const c of chainCovers) {
+        if (c.st.getTime() <= chainEnd.getTime() && c.sp.getTime() > chainEnd.getTime()) {
+          chainEnd = c.sp;
+          cognosEndCandidates.push(chainEnd);
+        }
+      }
+    }
+    const logoutPolicy = policyEndDt && earlyAnchorForGate ? {
+      cognosEndCandidates,
+      taaOutcome: `${taaLogoutOutcome}|${actualLastLogoutDt ? coverOutcomeAt(actualLastLogoutDt) : ''}`,
+      outcomesAt: (logout: Date): Set<string> => {
+        const logoutKeys = new Set<string>();
+        if (logout.getTime() < earlyAnchorForGate.getTime()) {
+          logoutKeys.add(logoutOutcomeKey(lookupRule('Early Logout', diffInMinutes(logout, earlyAnchorForGate))));
+        } else if (logout.getTime() <= policyEndDt.getTime()) {
+          logoutKeys.add('none');
+        } else {
+          const gross = diffInMinutes(policyEndDt, logout);
+          const shortBy = actualLastLogoutDt && logout.getTime() < actualLastLogoutDt.getTime()
+            ? Math.ceil((actualLastLogoutDt.getTime() - logout.getTime()) / 60000) : 0;
+          for (const credit of [gateLateLogoutCreditMin, Math.max(0, gateLateLogoutCreditMin - shortBy)]) {
+            const charge = Math.max(0, gross - credit);
+            logoutKeys.add(charge > 0 ? logoutOutcomeKey(lookupRule('Late Logout', charge)) : 'none');
+          }
+        }
+        const cover = coverOutcomeAt(logout);
+        return new Set([...logoutKeys].map(k => `${k}|${cover}`));
+      },
+    } : undefined;
+
     const comparisonCtx: ComparisonContext = {
       rawStart: rawStartDt,
       rawEnd: rawEndDt,
@@ -1903,6 +1977,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       // Only when the flex algorithm actually evaluated this row (tagged AND inside the
       // expected start window) — an out-of-window flex row runs standard rules and is held.
       isFlex: isFlex && !isFlexOutOfWindow,
+      logoutPolicy,
     };
     const comparisonResult = compareCognosRow(cognos, comparisonCtx, config);
     if (comparisonResult.mismatchColumns.length > 0) {
@@ -1939,9 +2014,13 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       cognosAgreeForcedFalseWithNoMismatch = true;
       // Kill switch (releaseProvenSafeHolds, Step 3 2026-09-24): when off, this exemption
       // never fires and the row stays held as before Phase 2.
+      // Same-basis fix (2026-09-27): the Cognos figure must ALSO reach TAA's own logout outcome
+      // on TAA's basis — a -1 vs 0 raw pair (MATCH within tolerance) with a 60m trailing RLS is
+      // 59m vs 60m past the release-adjusted end: no action vs ABSENT, never provably safe.
       defect1AutoExempt = config.releaseProvenSafeHolds
         && leftEarlyVal !== null
-        && Math.abs(leftEarlyVal) <= recompute.trailingReleaseMinutes + recompute.nursingMinutes + config.comparisonToleranceMinutes;
+        && Math.abs(leftEarlyVal) <= recompute.trailingReleaseMinutes + recompute.nursingMinutes + config.comparisonToleranceMinutes
+        && logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal, config.comparisonToleranceMinutes ?? 1, cognos['SIGIN OUT']);
     } else if (cognos['LEAVE TYPE'] === 'U-ABSENT' && (verdict === 'PRESENT' || verdict === 'LATE')) {
       disagreeReason = 'DEFECT_2_NIGHT_SHIFT_PUNCH_LOST';
     } else if (isLeaveDay && (cognos['LEAVE TYPE'] === 'U-ABSENT' || parseInt(cognos['LATE START'] || '0', 10) === -480) && verdict === 'LEAVE_EXCLUDED') {
@@ -1953,6 +2032,30 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // Only when still 'MATCH' so it never hides a DEFECT_1/DEFECT_2 diagnosis above.
     if (reducedOfficeHoursApplied && disagreeReason === 'MATCH') {
       disagreeReason = 'REDUCED_OFFICE_HOURS_POLICY';
+    }
+    // Release grid (business rule 2026-09-27): releases are booked on a fixed grid (default
+    // 30 minutes: :00/:30). An off-grid release is a visible, NON-blocking flag — never a hold
+    // and never rounded; the day was calculated with the release exactly as recorded.
+    const releaseGrid = config.releaseGridMinutes ?? 0;
+    let releaseGridNote = '';
+    if (releaseGrid > 0) {
+      const offGrid = empSegs.filter(seg => {
+        if (!isCodeInConfiguredSet(seg.SEG_CODE, config.releaseGridCodes || [])) return false;
+        const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
+        const sp = seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null;
+        const off = (d: Date | null) => !!d && ((d.getHours() * 60 + d.getMinutes()) % releaseGrid !== 0 || d.getSeconds() !== 0);
+        return off(st) || off(sp);
+      });
+      if (offGrid.length > 0) {
+        const describe = (seg: AspectSegment) => {
+          const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
+          const sp = seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null;
+          return `${seg.SEG_CODE} ${st ? formatTimeHHMM(st) : '--:--'}-${sp ? formatTimeHHMM(sp) : '--:--'}`;
+        };
+        releaseGridNote = `Release not on the ${releaseGrid}-minute grid: ${offGrid.map(describe).join(', ')} — calculated exactly as recorded; check the booking in ASPECT.`;
+        ruleFired += ` | ${releaseGridNote}`;
+        if (disagreeReason === 'MATCH') disagreeReason = 'RELEASE_OFF_GRID';
+      }
     }
 
     // --- Phase 4: "worst-case Cognos" gate (2026-09-24, plan worst-case-cognos-gate.md).
@@ -1981,12 +2084,14 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // lookupPolicyRule(minutes) outcome, so this gate never fires for a flex row (stays
     // MISMATCH, held as before).
     if (!isFlex && comparisonResult.mismatchColumns.includes('LEFT EARLY') && leftEarlyVal !== null && leftEarlyVal < 0) {
-      // Same inputs as defect1AutoExempt: Cognos's raw-window figure minus the
-      // trailing release/nursing minutes it ignores, floored at 0.
-      const cognosEarly = Math.max(0, -leftEarlyVal - (recompute.trailingReleaseMinutes + recompute.nursingMinutes));
-      const cognosRule = lookupRule('Early Logout', cognosEarly);
-      const taaRule = lookupRule('Early Logout', earlyMin);
-      if (sameActionOutcome(cognosRule, taaRule)) actionNeutralColumns.set('LEFT EARLY', actionOrNoAction(taaRule));
+      // Same-basis fix (2026-09-27): Cognos's figure is re-evaluated through TAA's own anchors,
+      // release/nursing adjustment, COVER credit, tier and BOTH Early and Late Logout rules
+      // (logoutOutcomeMatchesTaa) — the old test clamped it to an early-logout minute count and
+      // so called Cognos -1 vs TAA +1 with a 60m trailing RLS "NO_ACTION" while TAA exported an
+      // ABSENT for 61m late logout (59m on Cognos's figure: no action).
+      if (logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal, config.comparisonToleranceMinutes ?? 1, cognos['SIGIN OUT'])) {
+        actionNeutralColumns.set('LEFT EARLY', (logoutMeasurement?.bandAction && logoutMeasurement.bandAction !== 'NO_ACTION') ? logoutMeasurement.bandAction as TaaActionCode : 'NO_ACTION');
+      }
     }
     if (!isFlex && comparisonResult.mismatchColumns.includes('LATE START')) {
       const lateStartVal = parseSignedMinutes(cognos['LATE START'] || '');
@@ -2023,7 +2128,10 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
           const coverRuleGap = gateCoverShortfallMin > 0 ? lookupRule('Cover Not Attended', Math.max(0, gateCoverShortfallMin - gap)) : undefined;
           const lateLogoutNeutral = sameActionOutcome(lateLogoutRuleBase, lateLogoutRuleGap);
           const coverNeutral = gateCoverShortfallMin <= 0 || sameActionOutcome(coverRuleBase, coverRuleGap);
-          if (lateLogoutNeutral && coverNeutral) actionNeutralColumns.set('SCH DURATION', actionOrNoAction(lateLogoutRuleBase));
+          // Label with the outcome the gap could actually have moved: the cover rule when a COVER
+          // shortfall exists (the old label always named the Late Logout action — "NO_ACTION"
+          // on a row that exports a Cover-Not-Attended ABSENT).
+          if (lateLogoutNeutral && coverNeutral) actionNeutralColumns.set('SCH DURATION', gateCoverShortfallMin > 0 ? actionOrNoAction(coverRuleBase) : actionOrNoAction(lateLogoutRuleBase));
         }
       }
     }
@@ -2404,6 +2512,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         return forced ? `${baseText} (locked — cannot be included until resolved)` : baseText;
       })(),
       coverFallbackNote: getCoverFallbackNote(rowCorrections, config),
+      releaseGridNote: releaseGridNote || undefined,
       details: {
         isFlex, isLeaveDay, hasOvertime, ruleFired, reducedOfficeHoursApplied,
         punchCount: matchingPunches.length,
@@ -2454,6 +2563,12 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     results.push(reconciliationRow);
   }
 
+  // Re-stack every next-working-day COVER from the FINAL include set (see reallocateCoverSlots):
+  // placement above ran in input order and let a held row's unexported COVER push an included
+  // row's COVER later on the same target day.
+  const allocated = reallocateCoverSlots(results);
+  results.splice(0, results.length, ...allocated);
+  allCorrections.splice(0, allCorrections.length, ...results.flatMap(r => r.details.generatedCorrections));
   const aspectCorrectionsCsv = generateAspectCorrectionsCsv(
     results.filter(r => r.includeInOutput).flatMap(r => r.details.generatedCorrections)
   );
@@ -2521,6 +2636,11 @@ interface DownstreamResult {
    * GROSS window [effectiveEndDt, actualLastLogoutDt], matching the standard path's
    * own choice (see its comment) — the stricter test, not the credited remainder. */
   varianceInterval?: { label: 'EARLY_LOGOUT' | 'LATE_LOGOUT'; start: Date; end: Date };
+  /** Trace-only explanation for a finding that deliberately took no action (the "already
+   * actioned" rule) — appended to ruleFired by the caller even on NO_ACTION_REQUIRED. */
+  infoNote?: string;
+  /** Attended-COVER minutes credited against the gross late-logout time (0 when none). */
+  lateLogoutCreditedMin?: number;
 }
 
 /**
@@ -3191,6 +3311,7 @@ function evaluateEarlyAndLateLogout(params: {
   // flex callers happen to pass the same Date for both parameters. Confirmed policy is the
   // release-adjusted (effective) end, so both paths now use it.
   let lateLogoutCreditNote = '';
+  let lateLogoutCreditedMin = 0;
   if (actualLastLogoutDt.getTime() > effectiveEndDt.getTime()) {
     const grossMin = diffInMinutes(effectiveEndDt, actualLastLogoutDt);
     // WP1 (D1/D2): same credit as the standard branch — attended cover time is make-up time, never
@@ -3199,6 +3320,7 @@ function evaluateEarlyAndLateLogout(params: {
       ? creditedCoverMinutes(params.creditableCovers, effectiveEndDt, actualLastLogoutDt, params.presence)
       : 0;
     lateLogoutMin = Math.max(0, grossMin - creditedMin);
+    lateLogoutCreditedMin = creditedMin;
     if (creditedMin > 0) lateLogoutCreditNote = `${grossMin}m gross - ${creditedMin}m attended cover credited = ${lateLogoutMin}m remaining`;
   }
 
@@ -3211,17 +3333,17 @@ function evaluateEarlyAndLateLogout(params: {
     const rule = lookupRule('Early Logout', earlyMin);
     if (rule && rule.action !== 'NO_ACTION') {
       if (rule.action === 'LOGOFF_AND_COVER') {
-        const recordedLogoff = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', actualLastLogoutDt, earlyMin, config, processingDate);
-        const recordedNote = recordedLogoff ? ` [${recordedLogoff.note}]` : '';
-        if (!recordedLogoff) {
-          rowCorrections.push({
-            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(actualLastLogoutDt),
-            SegmentStarttime: formatTimeHHMM(actualLastLogoutDt), Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
-          });
+        // "Already actioned" rule (see findAlreadyRecordedIncident): no Log_off, no COVER.
+        // Returned as NO_ACTION_REQUIRED so callers never fire an action for it; infoNote
+        // carries the explanation into the row's trace.
+        const recordedLogoff = findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'Log_off', earlyMin);
+        if (recordedLogoff) {
+          return { verdict: 'EARLY_LOGOUT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout action', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, lateLogoutCreditedMin, infoNote: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${recordedLogoff.note}` };
         }
-        if (recordedLogoff?.hasCover) {
-          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}${recordedNote}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
-        }
+        rowCorrections.push({
+          Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'Log_off', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(actualLastLogoutDt),
+          SegmentStarttime: formatTimeHHMM(actualLastLogoutDt), Segmentduration: formatMinutesToHHMM(earlyMin), Memo: `TAA Early Logout ${earlyMin}m`,
+        });
         // WP2/D10 fix: previously called placeCoverSegment directly here, bypassing
         // same-day cover placement entirely — the only one of the four early/late-logout
         // sites that did. Now tries same-day first, exactly like the standard path's own
@@ -3234,17 +3356,17 @@ function evaluateEarlyAndLateLogout(params: {
         ) ?? placeCoverSegment(pfNo, nomDateStr, earlyMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, params.reducedHoursCoverExcluded ?? false);
         if (cover) {
           rowCorrections.push(cover);
-          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}${recordedNote}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
+          return { verdict: 'EARLY_LOGOUT', action: 'LOGOFF_AND_COVER', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
         }
         const coverBlockReason = describeCoverPlacementFailure(nomDateStr, segmentsByEmp.get(pfNo) || [], config, processingDate, params.reducedHoursCoverExcluded ?? false);
-        return { verdict: 'EARLY_LOGOUT', action: 'MANUAL_REVIEW_REQUIRED', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText} (cover target day has a schedule integrity problem: ${coverBlockReason})`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, holdReason: coverBlockReason, earlyMin, lateLogoutMin };
+        return { verdict: 'EARLY_LOGOUT', action: 'MANUAL_REVIEW_REQUIRED', resultCategory: 'LATE_AND_COVER_ADDED', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText} (cover target day has a schedule integrity problem: ${coverBlockReason})`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, holdReason: coverBlockReason, earlyMin, lateLogoutMin, lateLogoutCreditedMin };
       }
       if (rule.action === 'ABSENT_SEGMENT') {
         rowCorrections.push({
           Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'ABSENT', nominateDate: nomDateStr, SegmentDate: '',
           SegmentStarttime: '', Segmentduration: '', Memo: `TAA Early Logout ${earlyMin}m Exceeds Threshold`,
         });
-        return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
+        return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `${rule.segmentType} (${tier}): ${earlyMin}m -> ${rule.actionText}`, chargedVarianceMin: earlyMin, communicationRule: rule.communication, emailTemplateKey: 'early_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'EARLY_LOGOUT', start: actualLastLogoutDt, end: earlyAnchorDt } };
       }
     }
   } else if (lateLogoutMin > 0) {
@@ -3255,10 +3377,10 @@ function evaluateEarlyAndLateLogout(params: {
         SegmentStarttime: '', Segmentduration: '', Memo: `TAA Late Logout ${lateLogoutMin}m${lateLogoutCreditNote ? ` (${lateLogoutCreditNote})` : ''}`,
       });
       // WP5/B5/B15 — gross window, matching the standard path's own choice (comment above).
-      return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `Late Logout (${tier}): ${lateLogoutMin}m past the release-adjusted end ${formatTimeHHMM(effectiveEndDt)} (rostered end ${formatTimeHHMM(rawEndDt)})${lateLogoutCreditNote ? ` [${lateLogoutCreditNote}]` : ''} -> ${rule.actionText}`, chargedVarianceMin: lateLogoutMin, communicationRule: rule.communication, emailTemplateKey: 'late_logout_absence', rowCorrections, earlyMin, lateLogoutMin, varianceInterval: { label: 'LATE_LOGOUT', start: effectiveEndDt, end: actualLastLogoutDt } };
+      return { verdict: 'ABSENT', action: 'ABSENT_SEGMENT', resultCategory: 'MARKED_ABSENT', ruleFired: `Late Logout (${tier}): ${lateLogoutMin}m past the release-adjusted end ${formatTimeHHMM(effectiveEndDt)} (rostered end ${formatTimeHHMM(rawEndDt)})${lateLogoutCreditNote ? ` [${lateLogoutCreditNote}]` : ''} -> ${rule.actionText}`, chargedVarianceMin: lateLogoutMin, communicationRule: rule.communication, emailTemplateKey: 'late_logout_absence', rowCorrections, earlyMin, lateLogoutMin, lateLogoutCreditedMin, varianceInterval: { label: 'LATE_LOGOUT', start: effectiveEndDt, end: actualLastLogoutDt } };
     }
   }
-  return { verdict: 'PRESENT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout issue', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin };
+  return { verdict: 'PRESENT', action: 'NO_ACTION', resultCategory: 'NO_ACTION_REQUIRED', ruleFired: 'No downstream early/late-logout issue', chargedVarianceMin: 0, communicationRule: 'NA', emailTemplateKey: 'generic', rowCorrections: [], earlyMin, lateLogoutMin, lateLogoutCreditedMin };
 }
 
 /**
@@ -3763,17 +3885,67 @@ function tryPlaceSameDayCover(
   const row: AspectCorrectionRow = {
     Code: config.aspectNormalActionCode, ID: empId, SegmentCode: 'COVER', nominateDate: incidentDateStr, SegmentDate: formatSegmentDate(windowStart),
     SegmentStarttime: formatTimeHHMM(windowStart), Segmentduration: formatMinutesToHHMM(durationMinutes), Memo: memo,
+    coverSlot: { key: trackerKey, fixed: true },
   };
   coverReservationByRow.set(row, { trackerKey, entry: reservationEntry });
   return row;
 }
 
-/** Existing ASPECT COVER segments already matched to an incident during THIS run, so two
- * findings on one employee (e.g. Late Login and Early Logout with the same minutes) can never
- * both claim the same recorded cover. Reset at the start of every runReconciliation. */
-let consumedRecordedCovers = new WeakSet<AspectSegment>();
+/** Deterministic COVER allocation (2026-09-27). Every next-working-day COVER (coverSlot with a
+ * baseStartMs) is re-stacked per group (employee|target day) from the group's base start:
+ * INCLUDED rows first, then held/excluded rows as provisional slots after them; within each,
+ * by incident date, then PF, then original row/correction order. So:
+ *  - an unexported (held/unticked) COVER never pushes an exported one later on the same day;
+ *  - equivalent included inputs get the same placement whatever the input row order;
+ *  - approving a held row later re-stacks the group without any overlap.
+ * A group that also holds a fixed same-day cover is left exactly as placed (that cover is tied
+ * to proven attendance; mixing the two is not re-derived). Pure: returns new row/correction
+ * objects only where something moved, the same array when nothing did. Called at the end of
+ * runReconciliation, after the Hold Policy (pipeline.ts) and on every Include toggle (App.tsx). */
+export function reallocateCoverSlots(rows: ReconciliationRow[]): ReconciliationRow[] {
+  type Item = { rowIdx: number; corrIdx: number; corr: AspectCorrectionRow; included: boolean; incidentMs: number; pf: string };
+  const groups = new Map<string, Item[]>();
+  const fixedKeys = new Set<string>();
+  rows.forEach((r, rowIdx) => r.details.generatedCorrections.forEach((corr, corrIdx) => {
+    const slot = corr.coverSlot;
+    if (!slot) return;
+    if (slot.fixed) { fixedKeys.add(slot.key); return; }
+    if (slot.baseStartMs === undefined || slot.durationMin === undefined) return;
+    const incident = slot.incidentNomDate ? parseDateTimeString(slot.incidentNomDate) : null;
+    const list = groups.get(slot.key) || [];
+    list.push({ rowIdx, corrIdx, corr, included: r.includeInOutput, incidentMs: incident ? incident.getTime() : 0, pf: corr.ID });
+    groups.set(slot.key, list);
+  }));
+  const moved = new Map<number, Map<number, AspectCorrectionRow>>();
+  groups.forEach((items, key) => {
+    if (fixedKeys.has(key)) return;
+    const ordered = [...items].sort((a, b) =>
+      (a.included === b.included ? 0 : a.included ? -1 : 1)
+      || a.incidentMs - b.incidentMs
+      || a.pf.localeCompare(b.pf)
+      || a.rowIdx - b.rowIdx
+      || a.corrIdx - b.corrIdx);
+    let cursorMs = Math.min(...ordered.map(i => i.corr.coverSlot!.baseStartMs!));
+    ordered.forEach(item => {
+      const start = new Date(cursorMs);
+      cursorMs += item.corr.coverSlot!.durationMin! * 60000;
+      const SegmentStarttime = formatTimeHHMM(start);
+      const SegmentDate = formatSegmentDate(start);
+      if (SegmentStarttime === item.corr.SegmentStarttime && SegmentDate === item.corr.SegmentDate) return;
+      const perRow = moved.get(item.rowIdx) || new Map<number, AspectCorrectionRow>();
+      perRow.set(item.corrIdx, { ...item.corr, SegmentStarttime, SegmentDate });
+      moved.set(item.rowIdx, perRow);
+    });
+  });
+  if (moved.size === 0) return rows;
+  return rows.map((r, rowIdx) => {
+    const perRow = moved.get(rowIdx);
+    if (!perRow) return r;
+    return { ...r, details: { ...r.details, generatedCorrections: r.details.generatedCorrections.map((c, i) => perRow.get(i) ?? c) } };
+  });
+}
 
-interface RecordedIncident { note: string; hasCover: boolean }
+interface RecordedIncident { note: string }
 
 const segCodeIs = (seg: AspectSegment, code: string) => (seg.SEG_CODE || '').trim().toUpperCase() === code.toUpperCase();
 const segNomKey = (seg: AspectSegment) => normalizeDateKey(seg.NOM_DATE) || seg.NOM_DATE;
@@ -3784,60 +3956,26 @@ function recordedSegMinutes(seg: AspectSegment): number | null {
   return a && b ? Math.round((b.getTime() - a.getTime()) / 60000) : null;
 }
 
-/** Idempotency guard for re-runs over an already-corrected ASPECT export. A LATE / Log_off
- * marker that ASPECT already holds for THIS incident — same code, same schedule day, same start
- * minute, same duration (exact match, never fuzzy) — means the finding was already actioned, so
- * the marker must not be emitted again. The companion COVER is treated as recorded only when
- * that marker is (a bare COVER never suppresses anything on its own) AND an unclaimed COVER of
- * the same length sits on EITHER the incident's own schedule day OR the day THIS incident would
- * resolve to as its cover target (D9/B9 fix, WP2) — an earlier run may have already placed it
- * there. Claimed through the same consumedRecordedCovers set the incident-day check always used,
- * so one existing cover still repays at most one incident (B9's stated red line: two distinct
- * incidents on one day, e.g. a late login and an early logout, must always get two covers, on
- * re-upload as much as on a first run — the marker-recorded gate is what makes that safe, since
- * a second, different incident has no marker of ITS OWN already recorded and so never matches
- * here at all). A marker with no such COVER still returns a result so the caller skips the
- * marker but keeps placing the cover: the agent must never lose the make-up. AspectSegment
- * carries no MEMO, so this can only match on date+duration, never on incident identity —
- * matching the target day closes D9's specific gap (rec-285: an earlier run's cover on a
- * future working day), not the general case of an unrelated same-length cover happening to
- * land on the same day, which remains indistinguishable by design (documented limitation). */
+/** "Already actioned" rule (business decision 2026-09-27, doc/PRD.md §4.1): when ASPECT
+ * already holds a LATE (or Log_off) segment on the incident's own schedule day, the incident
+ * has been actioned outside TAA and TAA takes NO further action for it — no marker AND no
+ * COVER. Any segment of that code on that NOM day counts, whatever its start or minutes: a
+ * recorded LATE of 8m against TAA's measured 10m is still "already added", never a second
+ * LATE (which is what the previous exact start+duration match exported) and never a COVER on
+ * top of it. The caller keeps the verdict for the reviewer and traces both figures. */
 function findAlreadyRecordedIncident(
-  empSegments: AspectSegment[], incidentNomDateStr: string, code: 'LATE' | 'Log_off', startDt: Date | null, minutes: number,
-  config: ConfigRegistry, processingDate: Date,
+  empSegments: AspectSegment[], incidentNomDateStr: string, code: 'LATE' | 'Log_off', measuredMinutes: number,
 ): RecordedIncident | null {
   const incidentKey = normalizeDateKey(incidentNomDateStr) || incidentNomDateStr;
-  const startMin = startDt ? Math.floor(startDt.getTime() / 60000) : null;
-  const marker = empSegments.find(s => {
-    if (!segCodeIs(s, code) || segNomKey(s) !== incidentKey || recordedSegMinutes(s) !== minutes) return false;
-    if (startMin === null) return true;
-    const st = s.START_MOMENT ? parseDateTimeString(s.START_MOMENT) : null;
-    return !!st && Math.floor(st.getTime() / 60000) === startMin;
-  });
-  if (!marker) return null;
-
-  // D9: resolve where a NEW cover for this same incident would land today, and accept an
-  // unclaimed matching cover there too. Uses the exact same resolution placeCoverSegment
-  // would use, so "already repaid" here can never disagree with "where would we place it."
-  const incidentDate = parseDateTimeString(incidentNomDateStr);
-  const targetResolution = incidentDate ? resolveCoverTargetDay(incidentDate, incidentNomDateStr, empSegments, config, processingDate) : null;
-  const targetKey = targetResolution && targetResolution.ok ? targetResolution.targetDateStr : null;
-
-  const cover = empSegments.find(s => {
-    if (!segCodeIs(s, 'COVER') || consumedRecordedCovers.has(s) || recordedSegMinutes(s) !== minutes) return false;
-    const segKey = segNomKey(s);
-    return segKey === incidentKey || (targetKey !== null && segKey === targetKey);
-  });
-  if (cover) consumedRecordedCovers.add(cover);
-  const fmt = (seg: AspectSegment) => {
+  const markers = empSegments.filter(s => segCodeIs(s, code) && segNomKey(s) === incidentKey);
+  if (markers.length === 0) return null;
+  const describe = (seg: AspectSegment) => {
     const st = seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null;
-    return `${seg.SEG_CODE} ${st ? formatTimeHHMM(st) : '--:--'} ${minutes}m`;
+    const mins = recordedSegMinutes(seg);
+    return `${st ? formatTimeHHMM(st) : '--:--'} ${mins !== null ? `${mins}m` : '?m'}`;
   };
   return {
-    hasCover: !!cover,
-    note: cover
-      ? `already recorded in ASPECT (${fmt(marker)}; ${fmt(cover)}) - not re-emitted`
-      : `${fmt(marker)} already recorded in ASPECT - marker not re-emitted, cover still added`,
+    note: `ASPECT already has ${code} ${markers.map(describe).join(', ')} vs TAA ${measuredMinutes}m — already actioned, no correction (no ${code}, no COVER)`,
   };
 }
 
@@ -3884,6 +4022,7 @@ function placeCoverSegment(
     // SegmentDate can legitimately differ by one calendar day for an overnight target.
     Code: config.aspectNormalActionCode, ID: empId, SegmentCode: 'COVER', nominateDate: targetDateStr, SegmentDate: formatSegmentDate(coverStartDt),
     SegmentStarttime: formatTimeHHMM(coverStartDt), Segmentduration: formatMinutesToHHMM(durationMinutes), Memo: memo,
+    coverSlot: { key: trackerKey, baseStartMs: lastSegmentEndDt.getTime(), durationMin: durationMinutes, incidentNomDate: incidentNomDateStr },
   };
   if (fallbackOption) coverFallbackByRow.set(row, fallbackOption);
   coverReservationByRow.set(row, { trackerKey, entry: reservationEntry });
@@ -4022,6 +4161,8 @@ export function generateAnnotatedCognosFile(
     // WP3 — appended at the end; do not insert earlier, appendedHeaders and
     // lineValues below must stay positionally zipped.
     'TAA_REVIEW_COMPLETED', 'TAA_COGNOS_ISSUE_LABEL',
+    // 2026-09-27 — release booked off the configured grid (informational, never a hold).
+    'TAA_RELEASE_GRID_NOTE',
   ];
   const allHeaders = [...originalHeaders, ...appendedHeaders];
 
@@ -4082,6 +4223,7 @@ export function generateAnnotatedCognosFile(
       // WP3 — appended at the end (see appendedHeaders comment above).
       r.reviewCompleted ? 'TRUE' : 'FALSE',
       r.TAA_COGNOS_AGREE ? '' : describeDisagreement(r),
+      r.releaseGridNote || '',
     ];
     lines.push(lineValues.map(escapeCell).join(delimiter));
   });

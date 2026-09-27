@@ -427,6 +427,43 @@ function isOpenLogoutSentinel(raw: string): boolean {
   return v === '' || v === '0';
 }
 
+/** One CMS row's login + logout state, resolved ONCE and shared by validateCmsFile and
+ * parseCmsPunches so the two can never disagree (2026-09-27). Each timestamp is resolved on its
+ * own: the full datetime column when it holds a value, else Date + the time-only column — so a
+ * blank optional field never discards the other field's seconds (a blank Logout Time (Full) used
+ * to make the parser drop BOTH full timestamps and re-read the login as HH:MM:00). Logout state:
+ * - both logout fields blank/"0" -> OPEN (still clocked in; the F4 sentinel);
+ * - one field "0" while the other holds a logout -> CONTRADICTORY (never guessed either way);
+ * - otherwise CLOSED: the populated full datetime, else Date + time (moved to the next day when it
+ *   would fall before the login — a cross-midnight shift; "00:00" is a time, never a sentinel). */
+type CmsRowState =
+  | { kind: 'OK'; login: Date; logout: Date | null }
+  | { kind: 'CONTRADICTORY'; reason: string }
+  | { kind: 'UNPARSEABLE' };
+function resolveCmsRow(row: string[]): CmsRowState {
+  const dateStr = (row[0] || '').trim();
+  const loginFull = (row[4] || '').trim();
+  const loginClock = (row[2] || '').trim();
+  const login = loginFull ? parseDateTimeString(loginFull) : (loginClock ? parseDateTimeString(`${dateStr} ${loginClock}`) : null);
+  if (!login) return { kind: 'UNPARSEABLE' };
+  const logoutClock = (row[3] || '').trim();
+  const logoutFull = (row[5] || '').trim();
+  const clockOpen = isOpenLogoutSentinel(logoutClock);
+  const fullOpen = isOpenLogoutSentinel(logoutFull);
+  if (clockOpen && fullOpen) return { kind: 'OK', login, logout: null };
+  if ((logoutClock === '0' && !fullOpen) || (logoutFull === '0' && !clockOpen)) {
+    return { kind: 'CONTRADICTORY', reason: `logout is "0" (still clocked in) in one column but "${logoutClock === '0' ? logoutFull : logoutClock}" in the other` };
+  }
+  if (!fullOpen) {
+    const logout = parseDateTimeString(logoutFull);
+    return logout ? { kind: 'OK', login, logout } : { kind: 'UNPARSEABLE' };
+  }
+  const sameDay = parseDateTimeString(`${dateStr} ${logoutClock}`);
+  if (!sameDay) return { kind: 'UNPARSEABLE' };
+  const logout = sameDay.getTime() < login.getTime() ? new Date(sameDay.getTime() + 86400000) : sameDay;
+  return { kind: 'OK', login, logout };
+}
+
 export function parseCmsPunches(content: string): CMSPunch[] {
   const rawRows = parseDelimitedText(content);
   if (rawRows.length < 4) return [];
@@ -441,35 +478,20 @@ export function parseCmsPunches(content: string): CMSPunch[] {
 
     const dateStr = row[0].trim();
     const loginId = row[1].trim();
-    const stillClockedIn = isOpenLogoutSentinel(row[3] || '') || isOpenLogoutSentinel(row[5] || '');
-
-    // Prefer Col 5 & 6 (full datetime). If unavailable, reconstruct from Col 1 + Col 3/4
-    let loginDt: Date | null = null;
-    let logoutDt: Date | null = null;
-
-    if (row.length >= 6 && row[4] && row[5]) {
-      loginDt = parseDateTimeString(row[4].trim());
-      logoutDt = parseDateTimeString(row[5].trim());
-    }
-
-    if (!loginDt && row[2]) {
-      loginDt = parseDateTimeString(`${dateStr} ${row[2].trim()}`);
-    }
-    if (!logoutDt && row[3] && !stillClockedIn) {
-      logoutDt = parseDateTimeString(`${dateStr} ${row[3].trim()}`);
-    }
-
-    if (loginId && loginDt && (logoutDt || stillClockedIn)) {
-      punches.push({
-        Date: dateStr,
-        LoginID: loginId,
-        LoginTimeStr: row[2] ? row[2].trim() : formatTimeHHMM(loginDt),
-        LogoutTimeStr: stillClockedIn ? (row[3] ? row[3].trim() : '') : (row[3] ? row[3].trim() : formatTimeHHMM(logoutDt!)),
-        LoginDateTime: loginDt,
-        LogoutDateTime: stillClockedIn ? null : logoutDt,
-        stillClockedIn: stillClockedIn || undefined,
-      });
-    }
+    const state = resolveCmsRow(row);
+    // CONTRADICTORY / UNPARSEABLE rows produce no punch; validateCmsFile rejects the file with
+    // the specific reason (and its row-count check backstops any other path).
+    if (!loginId || state.kind !== 'OK') continue;
+    const stillClockedIn = state.logout === null;
+    punches.push({
+      Date: dateStr,
+      LoginID: loginId,
+      LoginTimeStr: row[2] ? row[2].trim() : formatTimeHHMM(state.login),
+      LogoutTimeStr: row[3] ? row[3].trim() : (state.logout ? formatTimeHHMM(state.logout) : ''),
+      LoginDateTime: state.login,
+      LogoutDateTime: state.logout,
+      stillClockedIn: stillClockedIn || undefined,
+    });
   }
 
   return punches;
@@ -577,10 +599,18 @@ export function validateCmsFile(content: string, fileName: string): CmsFileValid
     // other column (Date, Login ID, Login Time, Login Time (Full)) stays
     // exactly as strict as before, so a genuinely malformed file is still
     // rejected. Never matches "00:00" — see isOpenLogoutSentinel.
-    const stillClockedIn = isOpenLogoutSentinel(row[3] || '') || isOpenLogoutSentinel(row[5] || '');
+    // Shared with parseCmsPunches (resolveCmsRow): open only when BOTH logout fields are blank/"0";
+    // a "0" beside a populated logout is contradictory evidence and rejects the file.
+    const rowState = resolveCmsRow(row);
+    if (rowState.kind === 'CONTRADICTORY') {
+      return { ok: false, reason: `"${fileName}" row ${r + 1}: ${rowState.reason} — contradictory CMS logout, re-export the file.` };
+    }
+    const stillClockedIn = rowState.kind === 'OK' && rowState.logout === null;
 
     for (let c = 0; c < CMS_COL_TYPES.length; c++) {
-      if (stillClockedIn && (c === 3 || c === 5)) continue;
+      // A logout column holding the open sentinel is excused from type validation (F4); on a
+      // CLOSED row the time-only Logout Time may be blank when Logout Time (Full) carries it.
+      if ((c === 3 || c === 5) && isOpenLogoutSentinel(row[c] || '')) continue;
       const raw = row[c];
       const value = raw ? raw.trim() : '';
       const type = CMS_COL_TYPES[c];
@@ -614,18 +644,24 @@ export function validateCmsFile(content: string, fileName: string): CmsFileValid
     }
 
     if (!stillClockedIn) {
-      const logoutClock = row[3].trim();
-      const nextDate = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate() + 1);
-      const logoutClockParsed = parseClockTimeString(logoutClock)!;
-      const canonicalLogoutClock = `${String(logoutClockParsed.hours).padStart(2, '0')}:${String(logoutClockParsed.minutes).padStart(2, '0')}`;
-      const logoutFull = row[5]?.trim() ? parseDateTimeString(row[5].trim()) : parseDateTimeString(`${dateText} ${logoutClock}`);
-      if (!logoutFull) {
+      if (rowState.kind !== 'OK' || !rowState.logout) {
         return { ok: false, reason: `"${fileName}" row ${r + 1}: logout timestamp could not be resolved without guessing.` };
       }
+      const logoutClock = (row[3] || '').trim();
+      const nextDate = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate() + 1);
+      const logoutFull = rowState.logout;
       const logoutDateMatchesRow = formatDateDDMMYYYY(logoutFull) === formatDateDDMMYYYY(rowDate);
       const logoutDateIsNextDay = formatDateDDMMYYYY(logoutFull) === formatDateDDMMYYYY(nextDate);
-      if (row[5]?.trim() && ((!logoutDateMatchesRow && !logoutDateIsNextDay) || formatTimeHHMM(logoutFull) !== canonicalLogoutClock)) {
-        return { ok: false, reason: `"${fileName}" row ${r + 1}: Logout Time conflicts with Logout Time (Full).` };
+      if (!logoutDateMatchesRow && !logoutDateIsNextDay) {
+        return { ok: false, reason: `"${fileName}" row ${r + 1}: Logout Time (Full) is not on the row's date or the next day.` };
+      }
+      // Both logout fields populated -> they must name the same minute.
+      if (logoutClock && row[5]?.trim()) {
+        const logoutClockParsed = parseClockTimeString(logoutClock)!;
+        const canonicalLogoutClock = `${String(logoutClockParsed.hours).padStart(2, '0')}:${String(logoutClockParsed.minutes).padStart(2, '0')}`;
+        if (formatTimeHHMM(logoutFull) !== canonicalLogoutClock) {
+          return { ok: false, reason: `"${fileName}" row ${r + 1}: Logout Time conflicts with Logout Time (Full).` };
+        }
       }
       if (logoutFull.getTime() < loginFull.getTime()) {
         return { ok: false, reason: `"${fileName}" row ${r + 1}: logout datetime is earlier than login datetime.` };

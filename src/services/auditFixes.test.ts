@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG, validateConfigForRun } from './configRegistry';
 import { recomputeDaySchedule } from './scheduleRecompute';
-import { runReconciliation, resolveNoLoginDecision, flexLateBandFires, isFlexScheduleWithinExpectedWindow, ReconciliationInput } from './reconciliationEngine';
+import { runReconciliation, resolveNoLoginDecision, flexLateBandFires, isFlexScheduleWithinExpectedWindow, ReconciliationInput, lookupPolicyRule } from './reconciliationEngine';
 import { runUnseenPunchAudit } from './unseenPunchAudit';
 import { SUITE_RUN_DATE } from './regressionSuite';
 import { simulateScenario } from './scenarioGuide';
 import { isForcedHoldReason } from './holdReasons';
 import { assessHeadcountMapping } from './punchAttribution';
 import { AspectSegment, AspectIdentity, CMSPunch, CognosRecord, ColumnComparison, ConfigRegistry, PolicyRuleItem, RoleTier } from '../types/taa';
-import { parseDateTimeString } from './parsers';
+import { parseDateTimeString, parseCmsPunches, validateCmsFile } from './parsers';
 import { compareCognosRow, ComparisonContext } from './cognosComparison';
 
 // -----------------------------------------------------------------------
@@ -491,6 +491,18 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     attendanceVerdictLabel: '', leaveMinutes: null, isLeaveDay: false,
   };
   const find = (cols: ColumnComparison[], name: string) => cols.find(c => c.column === name);
+  // Same-basis logout evaluator as the engine builds it (ComparisonContext.logoutPolicy), for a
+  // plain OPS day with no release and no COVER: effective end = raw end, no credit. Without it
+  // compareCognosRow can never prove a LEFT EARLY release (fail closed, case c2).
+  const simpleLogoutPolicy = (rawEnd: Date, actualLogout: Date): ComparisonContext['logoutPolicy'] => {
+    const key = (r?: PolicyRuleItem) => (r && r.action !== 'NO_ACTION') ? r.id : 'none';
+    const outcomeOf = (logout: Date): string => {
+      const diff = Math.floor((logout.getTime() - rawEnd.getTime()) / 60000);
+      if (diff < 0) return key(lookupPolicyRule(DEFAULT_CONFIG, 'Early Logout', 'OPS', -diff));
+      return diff > 0 ? key(lookupPolicyRule(DEFAULT_CONFIG, 'Late Logout', 'OPS', diff)) : 'none';
+    };
+    return { taaOutcome: outcomeOf(actualLogout), outcomesAt: (logout: Date) => new Set([outcomeOf(logout)]), cognosEndCandidates: [rawEnd] };
+  };
 
   // (a) Cognos SIGIN IN/OUT hours apart but SIGNIN DURATION="00:00", and the CMS evidence
   // behind them is two instantaneous swipes (staffedMinutes ~0) -> MATCH, not held.
@@ -523,17 +535,27 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
   }
 
   // (c) LEFT EARLY: Cognos says 3, TAA recomputes 11 — both non-negative, both below the
-  // live "Late Logout" policy boundary -> same band -> NOT_COMPARABLE, not MISMATCH.
+  // live "Late Logout" policy boundary -> same outcome on TAA's basis -> NOT_COMPARABLE.
   {
     const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': '15:11', 'LEFT EARLY': '3' });
     const ctx: ComparisonContext = {
       ...baseCtx,
       rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:11:00`),
+      logoutPolicy: simpleLogoutPolicy(dt(`${D} 15:00:00`), dt(`${D} 15:11:00`)),
     };
     const result = compareCognosRow(cognos, ctx, DEFAULT_CONFIG);
     const comp = find(result.comparisons, 'LEFT EARLY');
     assert.equal(comp?.status, 'NOT_COMPARABLE', '(c) both agree "not left early" below the policy boundary -> NOT_COMPARABLE');
     assert.ok(!result.mismatchColumns.includes('LEFT EARLY'), '(c) must not hold the row on LEFT EARLY');
+  }
+
+  // (c2) Same figures but no same-basis evaluator in the context: nothing proves the two
+  // figures reach the same payroll outcome, so LEFT EARLY stays MISMATCH (fail closed).
+  {
+    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': '15:11', 'LEFT EARLY': '3' });
+    const ctx: ComparisonContext = { ...baseCtx, rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:11:00`) };
+    const comp = find(compareCognosRow(cognos, ctx, DEFAULT_CONFIG).comparisons, 'LEFT EARLY');
+    assert.equal(comp?.status, 'MISMATCH', '(c2) no logoutPolicy -> no proof -> stays MISMATCH');
   }
 
   // (d) LEFT EARLY: Cognos says -10 (left early), TAA recomputes +5 (stayed late) — a sign
@@ -559,10 +581,17 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     );
     const belowBoundary = lateLogoutMin - 5;
     const aboveBoundary = lateLogoutMin + 5;
-    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': `15:${String(aboveBoundary).padStart(2, '0')}`, 'LEFT EARLY': String(belowBoundary) });
+    // Real clock times (15:00 + N minutes). The previous `15:${aboveBoundary}` built "15:65" —
+    // an unparseable time, so actualLastLogout was null and this case passed without ever
+    // comparing a straddling pair.
+    const rawEnd = dt(`${D} 15:00:00`);
+    const logout = new Date(rawEnd.getTime() + aboveBoundary * 60000);
+    const hhmm = `${String(logout.getHours()).padStart(2, '0')}:${String(logout.getMinutes()).padStart(2, '0')}`;
+    const cognos = cognosRow({ 'SIGIN IN': '07:00', 'SIGIN OUT': hhmm, 'LEFT EARLY': String(belowBoundary) });
     const ctx: ComparisonContext = {
       ...baseCtx,
-      rawEnd: dt(`${D} 15:00:00`), actualLastLogout: dt(`${D} 15:${String(aboveBoundary).padStart(2, '0')}:00`),
+      rawEnd, actualLastLogout: logout,
+      logoutPolicy: simpleLogoutPolicy(rawEnd, logout),
     };
     const result = compareCognosRow(cognos, ctx, DEFAULT_CONFIG);
     const comp = find(result.comparisons, 'LEFT EARLY');
@@ -1024,6 +1053,47 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
     const trnCognos = { 'LEAVE TYPE': 'TRN New Hires', 'SIGNIN DURATION': '00:00', 'SIGIN IN': '', 'SIGIN OUT': '', 'SCH DURATION': '8:0' };
     const out = run(trnSegments, [], trnCognos, undefined, trnConfig);
     assert.equal(out.rows[0].holdReason, 'FULL_DAY_REMOVAL_ON_SCHEDULED_DAY', 'kill switch off: no-attendance all-agree gate must not fire, row held as before Phase 5');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CMS logout state (2026-09-27, GPT D / Astra P5): validateCmsFile and parseCmsPunches share one
+// row resolver. Fixtures are DERIVED from the real CMS_23092026.csv row for Login ID 52854
+// (login 23/09/2026 15:03:35, logout 15:04 / 15:04:55) by changing one field each.
+// ---------------------------------------------------------------------------
+{
+  const hdr = 'CMS Login Logout Report\nGenerated,x\nDate,Login ID,Login Time,Logout Time,Login Time,Logout Time\n';
+  const filler = '23/09/2026,11111,08:00,16:00,23/09/2026 08:00:00,23/09/2026 16:00:00\n';
+  const file = (row: string) => `${hdr}${filler}${row}\n`;
+  const punchOf = (content: string) => parseCmsPunches(content).find(p => p.LoginID === '52854');
+  const hms = (d: Date | null | undefined) => d ? `${String(d.getDate()).padStart(2, '0')} ${d.toTimeString().slice(0, 8)}` : 'open';
+  const expectRow = (label: string, row: string, login: string, logout: string) => {
+    const content = file(row);
+    const v = validateCmsFile(content, 'x.csv');
+    assert.ok(v.ok, `${label}: must validate`);
+    const fromValidator = v.ok ? v.punches.find(p => p.LoginID === '52854') : undefined;
+    const fromParser = punchOf(content);
+    for (const [who, p] of [['validator', fromValidator], ['parser', fromParser]] as const) {
+      assert.equal(hms(p?.LoginDateTime), login, `${label} (${who}): login`);
+      assert.equal(hms(p?.LogoutDateTime), logout, `${label} (${who}): logout`);
+      assert.equal(!!p?.stillClockedIn, logout === 'open', `${label} (${who}): open/closed state`);
+    }
+  };
+  expectRow('native row', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,23/09/2026 15:04:55', '23 15:03:35', '23 15:04:55');
+  expectRow('blank Logout Time (Full) -> closed, login keeps its seconds', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,', '23 15:03:35', '23 15:04:00');
+  expectRow('blank Logout Time -> closed from the full column', '23/09/2026,52854,15:03,,23/09/2026 15:03:35,23/09/2026 15:04:55', '23 15:03:35', '23 15:04:55');
+  expectRow('blank Login Time (Full) -> logout keeps its seconds', '23/09/2026,52854,15:03,15:04,,23/09/2026 15:04:55', '23 15:03:00', '23 15:04:55');
+  expectRow('both logout fields "0" -> open', '23/09/2026,52854,15:03,0,23/09/2026 15:03:35,0', '23 15:03:35', 'open');
+  expectRow('both logout fields blank -> open', '23/09/2026,52854,15:03,,23/09/2026 15:03:35,', '23 15:03:35', 'open');
+  expectRow('"00:00" is a next-day time, never the open sentinel', '23/09/2026,52854,22:00,00:00,23/09/2026 22:00:10,24/09/2026 00:00:40', '23 22:00:10', '24 00:00:40');
+  expectRow('cross-midnight time-only logout lands on the next day', '23/09/2026,52854,22:00,01:30,23/09/2026 22:00:10,', '23 22:00:10', '24 01:30:00');
+  for (const [label, row] of [
+    ['"0" Logout Time beside a full logout', '23/09/2026,52854,15:03,0,23/09/2026 15:03:35,23/09/2026 15:04:55'],
+    ['"0" Logout Time (Full) beside a time logout', '23/09/2026,52854,15:03,15:04,23/09/2026 15:03:35,0'],
+  ]) {
+    const v = validateCmsFile(file(row), 'x.csv');
+    assert.ok(!v.ok && /contradictory CMS logout/.test(v.reason), `${label}: must be rejected as contradictory`);
+    assert.equal(punchOf(file(row)), undefined, `${label}: parser must not guess a punch`);
   }
 }
 

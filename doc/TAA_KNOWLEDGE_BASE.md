@@ -1471,6 +1471,82 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
 (glossary gaps — a business classification decision, not a calculation), 32 `MISMATCH_FOUND`
 (mostly non-flex LATE_EARLY / SCHEDULE disagreements with pay-affecting actions).
 
+## 7r. Already-actioned LATE / Log_off, wrong-basis release, off-grid RLS (2026-09-27)
+
+1. **Already-actioned rule (business decision).** A LATE (or Log_off) already in ASPECT on the
+   incident's NOM day means TAA takes no further action for that finding: no marker, no COVER
+   (`findAlreadyRecordedIncident`, now a day-level code match). Before: an exact start+duration
+   match skipped only the marker and still added the COVER; a LATE of different minutes (8m vs
+   TAA 10m) exported a *second* LATE plus a COVER. Row: verdict kept, `TAA_ACTION = NO_ACTION`
+   (flex: `SHIFT_UPDATE_FLEX`, shift pair only), no charged variance, trace names both figures.
+   ABSENT band untouched. Side effect: a held row of this shape now falls in the `NO_ACTION`
+   Hold Policy action group. `reg-142`/`reg-143` rewritten, `reg-187`/`reg-188` added.
+
+2. **Same-basis LEFT EARLY release (Astra P1).** Both automatic LEFT EARLY releases — the
+   positive same-band downgrade (`cognosComparison.ts`) and Gate A's negative branch — used a
+   basis the policy never charges on: the first compared the two RAW figures to the Late Logout
+   band, the second clamped Cognos to an early-logout count. With a trailing release this
+   auto-exported an ABSENT that Cognos's own figure would not fire: RLS 14:30-15:00, logout
+   15:31, Cognos 29 vs TAA 31 = 59m vs 61m past the release-adjusted end (no action vs ABSENT);
+   likewise RLS 14:00-15:00, logout 15:01, Cognos -1 vs +1. Now one evaluator built by the engine
+   from its own anchors (`ComparisonContext.logoutPolicy`: release-adjusted end, early anchor,
+   attended-COVER credit — tried at full and at reduced credit when Cognos's logout is earlier —,
+   tier, live Early/Late Logout rules) decides both, plus `defect1AutoExempt`, via
+   `logoutOutcomeMatchesTaa`; it must also reproduce TAA's own outcome or nothing is released.
+   `lateLogoutBandIndex` (pooled every tier's minMinutes, ignored maxMinutes/gaps) removed.
+   Pairs on the same side still release (20 vs 22, 70 vs 72). Gate B's note now names the cover
+   action when a COVER shortfall exists (it printed the Late Logout action, e.g. "NO_ACTION" on a
+   Cover-Not-Attended ABSENT). `reg-189`; `auditFixes.test.ts` (c2) added and (e) fixed — it built
+   "15:65", an unparseable time, so it had never compared a straddling pair.
+
+3. **Release grid flag (business rule).** Releases are booked on a 30-minute grid (:00/:30 —
+   never 14:35 or 15:22). A `releaseGridCodes` segment (default RLS, RLS-2H, RLS-3H, UN_RLS,
+   Cover_RLS) off the `releaseGridMinutes` grid (default 30, 0 = off) sets `releaseGridNote` /
+   export column `TAA_RELEASE_GRID_NOTE` and a trace line; `TAA_DISAGREE_REASON` becomes
+   `RELEASE_OFF_GRID` only when still `MATCH`. Never a hold, never rounded (guessing ASPECT's
+   intent would change paid minutes). Config Registry has both fields. `reg-190`.
+
+4. **Cognos's logout, not its derived LEFT EARLY, + Rule 7 (GPT B / Astra P4).** The same-basis
+   evaluator now reads WHEN Cognos says the agent left from its own `SIGIN OUT` (placed on the
+   day nearest the CMS logout), because LEFT EARLY is derived from an anchor Cognos never exports
+   — sometimes the raw end, sometimes the end of a COVER its SCH includes (PF 27519: Cognos 1 =
+   16:01 - COVER end 16:00; TAA raw-end figure 61). SIGIN OUT is trusted alone only when it is
+   consistent with LEFT EARLY against the raw end or a contiguous trailing COVER end (±tol);
+   when Cognos contradicts itself (SIGIN OUT 15:31 but LEFT EARLY 29 on a 15:00 end), both
+   readings must reach TAA's outcome. The outcome now also includes Rule 7 (Cover Not Attended,
+   via the engine's own `evaluateCoverNotAttended`): Cognos out 15:00 vs CMS 15:10 with a
+   15:00-15:10 COVER is ABSENT on Cognos's reading → held. Net effect: the 27519-shape false
+   hold is released without any "net of COVER" special case and without using TAA-generated
+   COVERs as evidence of Cognos's basis; PF 40101858-style gross-basis rows are unaffected
+   (their LEFT EARLY already matched; SCH DURATION still decides). Real-data effect (27519,
+   28596, 28646, 4036626, 16850, 90119785) must be confirmed with a local replay — 90119785
+   would export its (separately matching) late-arrival ABSENT once released. `reg-189` (g)(h)(i).
+
+5. **COVER allocation from the final include set (Astra P3).** Next-working-day COVERs were
+   stacked on their target day in Cognos input order, and a HELD row's COVER kept its slot: an
+   included row's COVER was exported 10m later behind an unexported reservation, the result
+   depended on input row order, and unticking a row in review left the gap (`rebuildOutputs` only
+   filtered). Now each such COVER carries `coverSlot` metadata (never exported) and
+   `reallocateCoverSlots` re-stacks every employee|target-day group: included rows first, then
+   held/unticked rows as provisional slots, each by incident date → PF → input order. It runs at
+   the end of `runReconciliation`, after the Hold Policy in `pipeline.ts`, and on every Include
+   toggle in `App.tsx`; approving a held row later re-stacks without overlap. A group that also
+   holds a same-day cover (credited against proven attendance) is left exactly as placed.
+   `reg-191`.
+
+6. **CMS row state, one resolver (GPT D / Astra P5).** `validateCmsFile` and `parseCmsPunches`
+   now share `resolveCmsRow`. Before: EITHER logout field blank/"0" meant "still clocked in", so
+   a closed row with only its optional full datetime blank became an open punch (a false
+   `STILL_CLOCKED_IN` forced hold), and the parser read both full timestamps only when BOTH were
+   present, so one blank field silently dropped the other's seconds. Now each timestamp resolves
+   on its own (full column if populated, else Date + time, next day when before the login —
+   "00:00" is a time, never a sentinel); open only when BOTH logout fields are blank/"0"; a "0"
+   beside a populated logout is rejected as contradictory. Zero native rows are affected in the
+   supplied exports (fail-safe direction either way). CMS de-duplication is deliberately
+   unchanged: "closed snapshot supersedes open" was not adopted — the real 24/09 export's
+   zero-duration closed/open pairs (e.g. Login IDs 72849/72884/72900, per Astra; verify locally)
+   make it unsafe. Tests: `auditFixes.test.ts` CMS block (derived from Login ID 52854).
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

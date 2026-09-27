@@ -606,6 +606,14 @@ export interface ConfigRegistry {
    * be exact. Partial coverage below this tolerance still exports the correction, with
    * the shortfall noted in the trace — never silently dropped and never silently held. */
   technicalSegmentToleranceMinutes: number;
+  /** Release grid (business rule 2026-09-27): a release is only ever booked on this grid —
+   * e.g. 30 => starts/stops at :00 or :30, never 14:35 or 15:22. A releaseGridCodes segment off
+   * the grid is FLAGGED (TAA_DISAGREE_REASON RELEASE_OFF_GRID + a trace line), never held and
+   * never rounded: TAA still calculates with the release exactly as ASPECT recorded it. 0 turns
+   * the check off. */
+  releaseGridMinutes: number;
+  /** Segment codes the release grid applies to (matched via isCodeInConfiguredSet). */
+  releaseGridCodes: string[];
 
   /** Kill switch for the "held-review reduction" gates (Phases 1-5, 2026-09-24):
    * cognosComparison.ts's SIGNIN staffed-zero MATCH downgrade, LATE START/LEFT EARLY
@@ -782,6 +790,10 @@ export interface ReconciliationRow {
    * day) — a short, fixed, deterministic reason string, empty when cover was placed
    * against real future schedule data (or no cover fired at all). */
   coverFallbackNote: string;
+  /** Release grid flag (2026-09-27): names every release segment booked off the configured
+   * grid (config.releaseGridMinutes), e.g. "RLS 14:35-15:00". Informational only — never a
+   * hold, never changes the calculation. Empty/undefined when every release is on the grid. */
+  releaseGridNote?: string;
 
   // Internal calculation details for UI explanation
   details: {
@@ -862,6 +874,14 @@ export interface AspectCorrectionRow {
   SegmentStarttime: string; // HH:MM or empty for ABSENT
   Segmentduration: string; // HH:MM, or empty for ABSENT (no fixed duration)
   Memo: string;
+  /** COVER placement metadata (2026-09-27) — NEVER exported (generateAspectCorrectionsCsv writes
+   * only the named ASPECT fields). A next-working-day COVER is stacked on its target day after the
+   * day's last segment (baseStartMs) and after every earlier COVER in the same group (key =
+   * employee|target day); reallocateCoverSlots re-stacks each group from the FINAL include set so a
+   * held row's unexported COVER never pushes an exported one later, and input row order never
+   * matters. fixed = a same-day cover credited against proven attendance: never moved, and its
+   * group is left exactly as placed. */
+  coverSlot?: { key: string; fixed?: boolean; baseStartMs?: number; durationMin?: number; incidentNomDate?: string };
 }
 
 export interface EmailActionItem {

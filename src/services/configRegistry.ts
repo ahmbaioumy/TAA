@@ -495,6 +495,8 @@ export const DEFAULT_CONFIG: ConfigRegistry = {
 
   technicalSegmentCodes: ['TECH', 'TECH2'],
   technicalSegmentToleranceMinutes: 0,
+  releaseGridMinutes: 30,
+  releaseGridCodes: ['RLS', 'RLS-2H', 'RLS-3H', 'UN_RLS', 'Cover_RLS'],
 
   releaseProvenSafeHolds: true,
 
@@ -629,6 +631,7 @@ export function validateConfigForRun(config: ConfigRegistry): ConfigValidationIs
   requireNonNegativeInt('comparisonToleranceMinutes', config.comparisonToleranceMinutes);
   requireNonNegativeInt('coverMinimumDaysAfterRunDate', config.coverMinimumDaysAfterRunDate);
   requireNonNegativeInt('technicalSegmentToleranceMinutes', config.technicalSegmentToleranceMinutes);
+  requireNonNegativeInt('releaseGridMinutes', config.releaseGridMinutes);
 
   if (!config.aspectNormalActionCode?.trim()) {
     issues.push({ field: 'aspectNormalActionCode', kind: 'value', message: 'aspectNormalActionCode must not be blank.' });
