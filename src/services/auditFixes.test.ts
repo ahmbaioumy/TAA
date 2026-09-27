@@ -501,7 +501,7 @@ const run = (segments: AspectSegment[], punches: CMSPunch[], cognos: Partial<Cog
       if (diff < 0) return key(lookupPolicyRule(DEFAULT_CONFIG, 'Early Logout', 'OPS', -diff));
       return diff > 0 ? key(lookupPolicyRule(DEFAULT_CONFIG, 'Late Logout', 'OPS', diff)) : 'none';
     };
-    return { taaOutcome: outcomeOf(actualLogout), outcomesAt: (logout: Date) => new Set([outcomeOf(logout)]) };
+    return { taaOutcome: outcomeOf(actualLogout), outcomesAt: (logout: Date) => new Set([outcomeOf(logout)]), cognosEndCandidates: [rawEnd] };
   };
 
   // (a) Cognos SIGIN IN/OUT hours apart but SIGNIN DURATION="00:00", and the CMS evidence

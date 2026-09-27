@@ -1903,23 +1903,47 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       ? logoutMeasurement.bandId : 'none';
     const policyEndDt = effectiveEndDt;
     const earlyAnchorForGate = gateEarlyAnchorDt ?? effectiveEndDt;
+    // The last-logout time also decides Rule 7 (Cover Not Attended) for every ASPECT COVER on
+    // the day — a disputed logout can turn an attended COVER into an unattended one (ABSENT).
+    // Same function the engine itself runs, so it needs no separate self-check.
+    const coverOutcomeAt = (logout: Date): string => evaluateCoverNotAttended(recompute.coverSegments, actualFirstLoginDt, logout, tier, config)
+      .map(f => f.rule.id).sort().join(',');
+    // Plausible ends Cognos may have measured LEFT EARLY from: the raw end, then the end of each
+    // COVER chained contiguously onto it (touching or overlapping the running end).
+    const cognosEndCandidates: Date[] = rawEndDt ? [rawEndDt] : [];
+    if (rawEndDt) {
+      let chainEnd = rawEndDt;
+      const chainCovers = recompute.coverSegments
+        .map(seg => ({ st: seg.START_MOMENT ? parseDateTimeString(seg.START_MOMENT) : null, sp: seg.STOP_MOMENT ? parseDateTimeString(seg.STOP_MOMENT) : null }))
+        .filter((c): c is { st: Date; sp: Date } => !!c.st && !!c.sp)
+        .sort((x, y) => x.st.getTime() - y.st.getTime());
+      for (const c of chainCovers) {
+        if (c.st.getTime() <= chainEnd.getTime() && c.sp.getTime() > chainEnd.getTime()) {
+          chainEnd = c.sp;
+          cognosEndCandidates.push(chainEnd);
+        }
+      }
+    }
     const logoutPolicy = policyEndDt && earlyAnchorForGate ? {
-      taaOutcome: taaLogoutOutcome,
+      cognosEndCandidates,
+      taaOutcome: `${taaLogoutOutcome}|${actualLastLogoutDt ? coverOutcomeAt(actualLastLogoutDt) : ''}`,
       outcomesAt: (logout: Date): Set<string> => {
-        const out = new Set<string>();
+        const logoutKeys = new Set<string>();
         if (logout.getTime() < earlyAnchorForGate.getTime()) {
-          out.add(logoutOutcomeKey(lookupRule('Early Logout', diffInMinutes(logout, earlyAnchorForGate))));
-          return out;
+          logoutKeys.add(logoutOutcomeKey(lookupRule('Early Logout', diffInMinutes(logout, earlyAnchorForGate))));
+        } else if (logout.getTime() <= policyEndDt.getTime()) {
+          logoutKeys.add('none');
+        } else {
+          const gross = diffInMinutes(policyEndDt, logout);
+          const shortBy = actualLastLogoutDt && logout.getTime() < actualLastLogoutDt.getTime()
+            ? Math.ceil((actualLastLogoutDt.getTime() - logout.getTime()) / 60000) : 0;
+          for (const credit of [gateLateLogoutCreditMin, Math.max(0, gateLateLogoutCreditMin - shortBy)]) {
+            const charge = Math.max(0, gross - credit);
+            logoutKeys.add(charge > 0 ? logoutOutcomeKey(lookupRule('Late Logout', charge)) : 'none');
+          }
         }
-        if (logout.getTime() <= policyEndDt.getTime()) { out.add('none'); return out; }
-        const gross = diffInMinutes(policyEndDt, logout);
-        const shortBy = actualLastLogoutDt && logout.getTime() < actualLastLogoutDt.getTime()
-          ? Math.ceil((actualLastLogoutDt.getTime() - logout.getTime()) / 60000) : 0;
-        for (const credit of [gateLateLogoutCreditMin, Math.max(0, gateLateLogoutCreditMin - shortBy)]) {
-          const charge = Math.max(0, gross - credit);
-          out.add(charge > 0 ? logoutOutcomeKey(lookupRule('Late Logout', charge)) : 'none');
-        }
-        return out;
+        const cover = coverOutcomeAt(logout);
+        return new Set([...logoutKeys].map(k => `${k}|${cover}`));
       },
     } : undefined;
 
@@ -1996,7 +2020,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       defect1AutoExempt = config.releaseProvenSafeHolds
         && leftEarlyVal !== null
         && Math.abs(leftEarlyVal) <= recompute.trailingReleaseMinutes + recompute.nursingMinutes + config.comparisonToleranceMinutes
-        && logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal);
+        && logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal, config.comparisonToleranceMinutes ?? 1, cognos['SIGIN OUT']);
     } else if (cognos['LEAVE TYPE'] === 'U-ABSENT' && (verdict === 'PRESENT' || verdict === 'LATE')) {
       disagreeReason = 'DEFECT_2_NIGHT_SHIFT_PUNCH_LOST';
     } else if (isLeaveDay && (cognos['LEAVE TYPE'] === 'U-ABSENT' || parseInt(cognos['LATE START'] || '0', 10) === -480) && verdict === 'LEAVE_EXCLUDED') {
@@ -2065,7 +2089,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       // (logoutOutcomeMatchesTaa) — the old test clamped it to an early-logout minute count and
       // so called Cognos -1 vs TAA +1 with a 60m trailing RLS "NO_ACTION" while TAA exported an
       // ABSENT for 61m late logout (59m on Cognos's figure: no action).
-      if (logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal)) {
+      if (logoutOutcomeMatchesTaa(comparisonCtx, leftEarlyVal, config.comparisonToleranceMinutes ?? 1, cognos['SIGIN OUT'])) {
         actionNeutralColumns.set('LEFT EARLY', (logoutMeasurement?.bandAction && logoutMeasurement.bandAction !== 'NO_ACTION') ? logoutMeasurement.bandAction as TaaActionCode : 'NO_ACTION');
       }
     }

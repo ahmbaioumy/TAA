@@ -8645,16 +8645,18 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     // and (b) Gate A clamped Cognos -1 to "0m early = NO_ACTION"; both auto-released an ABSENT
     // for 61m late logout that Cognos's own figure puts at 59m (no action).
     const day = '27/08/2026';
-    const mk = (pf: string, rls: [string, string] | null, logout: string, leftEarly: string, sch: string, releaseSafe = true) => {
+    const mk = (pf: string, rls: [string, string] | null, logout: string, leftEarly: string, sch: string, releaseSafe = true, cover: [string, string] | null = null, cognosOut = logout) => {
       const segs: AspectSegment[] = [
         { EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 07:00:00`, STOP_MOMENT: `${day} 15:00:00`, DURATION: 480 },
       ];
+      if (cover) segs.push({ EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'COVER', START_MOMENT: `${day} ${cover[0]}:00`, STOP_MOMENT: `${day} ${cover[1]}:00`,
+        DURATION: (Number(cover[1].slice(0, 2)) * 60 + Number(cover[1].slice(3))) - (Number(cover[0].slice(0, 2)) * 60 + Number(cover[0].slice(3))) });
       if (rls) segs.push({ EMP_ID: pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'RLS', START_MOMENT: `${day} ${rls[0]}:00`, STOP_MOMENT: `${day} ${rls[1]}:00`,
         DURATION: (Number(rls[1].slice(0, 2)) * 60 + Number(rls[1].slice(3))) - (Number(rls[0].slice(0, 2)) * 60 + Number(rls[0].slice(3))) });
       const cognos: CognosRecord = {
         'SIGN IN DATE': '2026-08-27 00:00:00', SECTION: 'ECS', 'PF NO': pf, NAME: 'Same Basis Agent', 'LOGIN ID': `L${pf}`,
         DUTY1: '07:00 - 15:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': sch, 'SIGNIN DURATION': '',
-        'SIGIN IN': '07:00', 'SIGIN OUT': logout, 'LATE START': '0', 'LEFT EARLY': leftEarly, 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+        'SIGIN IN': '07:00', 'SIGIN OUT': cognosOut, 'LATE START': '0', 'LEFT EARLY': leftEarly, 'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
       };
       const punches: CMSPunch[] = [
         { Date: day, LoginID: `L${pf}`, LoginDateTime: makeDt(day, '07:00:00'), LogoutDateTime: makeDt(day, `${logout}:00`) },
@@ -8670,12 +8672,24 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     const c = mk('7000191', null, '15:22', '20', '8:0');                  // same side, no action: still released
     const e = mk('7000192', null, '16:12', '70', '8:0');                  // both ABSENT: still released
     const f = mk('7000193', ['14:30', '15:00'], '15:31', '29', '7:30', false); // kill switch off
+    // (g) PF 27519 shape: Cognos measured LEFT EARLY to the end of the attended COVER its SCH
+    // includes (out 16:01 = COVER end + 1); TAA's raw-end figure is 61 but the policy outcome is
+    // the same on every reading -> released (this was a false hold under the raw-band test).
+    const g = mk('7000196', null, '16:01', '1', '9:0', true, ['15:00', '16:00']);
+    // (h) Cognos's clock says 15:00, CMS 15:10: on Cognos's reading the 15:00-15:10 COVER was
+    // never attended (Rule 7 ABSENT), on TAA's it was -> held.
+    const h = mk('7000197', null, '15:10', '0', '8:10', true, ['15:00', '15:10'], '15:00');
+    // (i) realistic straddle: Cognos's own clock 15:29 (LE 29) vs CMS 15:31 -> held.
+    const i = mk('7000198', ['14:30', '15:00'], '15:31', '29', '7:30', true, null, '15:29');
     const checks: [string, boolean][] = [
       ['a: RLS 14:30, out 15:31, Cognos 29 vs 31 -> 59m vs 61m -> held', a.TAA_ACTION === 'ABSENT_SEGMENT' && a.holdReason === 'MISMATCH_FOUND' && leOf(a) === 'MISMATCH'],
       ['b: RLS 14:00, out 15:01, Cognos -1 vs +1 -> 59m vs 61m -> held', b.TAA_ACTION === 'ABSENT_SEGMENT' && b.holdReason === 'MISMATCH_FOUND' && leOf(b) === 'MISMATCH'],
       ['c: 20 vs 22 (no rule either way) -> still released', !c.holdReason && leOf(c) === 'NOT_COMPARABLE'],
       ['e: 70 vs 72 (ABSENT either way) -> still released', !e.holdReason && e.TAA_ACTION === 'ABSENT_SEGMENT' && leOf(e) === 'NOT_COMPARABLE'],
       ['f: kill switch off -> held', f.holdReason === 'MISMATCH_FOUND'],
+      ['g: 27519 shape (LE measured to the attended COVER end) -> released', !g.holdReason && leOf(g) === 'NOT_COMPARABLE'],
+      ['h: Cognos out 15:00 vs CMS 15:10 with COVER 15:00-15:10 -> Rule 7 differs -> held', leOf(h) === 'MISMATCH' && h.holdReason === 'MISMATCH_FOUND'],
+      ['i: Cognos clock 15:29 vs CMS 15:31 with RLS -> 59m vs 61m -> held', leOf(i) === 'MISMATCH' && i.holdReason === 'MISMATCH_FOUND'],
     ];
     results.push({
       id: 'reg-189', name: 'Disputed LEFT EARLY Judged On TAA\'s Own Basis: A Pair Straddling Late Logout After The Release Stays Held', category: 'Held-review reduction — same-basis release (2026-09-27)',

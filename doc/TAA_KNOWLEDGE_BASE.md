@@ -1506,6 +1506,22 @@ partial-gap case keeping the old note. Remaining 23/09 holds: 68 `UNCLASSIFIED_S
    `RELEASE_OFF_GRID` only when still `MATCH`. Never a hold, never rounded (guessing ASPECT's
    intent would change paid minutes). Config Registry has both fields. `reg-190`.
 
+4. **Cognos's logout, not its derived LEFT EARLY, + Rule 7 (GPT B / Astra P4).** The same-basis
+   evaluator now reads WHEN Cognos says the agent left from its own `SIGIN OUT` (placed on the
+   day nearest the CMS logout), because LEFT EARLY is derived from an anchor Cognos never exports
+   — sometimes the raw end, sometimes the end of a COVER its SCH includes (PF 27519: Cognos 1 =
+   16:01 - COVER end 16:00; TAA raw-end figure 61). SIGIN OUT is trusted alone only when it is
+   consistent with LEFT EARLY against the raw end or a contiguous trailing COVER end (±tol);
+   when Cognos contradicts itself (SIGIN OUT 15:31 but LEFT EARLY 29 on a 15:00 end), both
+   readings must reach TAA's outcome. The outcome now also includes Rule 7 (Cover Not Attended,
+   via the engine's own `evaluateCoverNotAttended`): Cognos out 15:00 vs CMS 15:10 with a
+   15:00-15:10 COVER is ABSENT on Cognos's reading → held. Net effect: the 27519-shape false
+   hold is released without any "net of COVER" special case and without using TAA-generated
+   COVERs as evidence of Cognos's basis; PF 40101858-style gross-basis rows are unaffected
+   (their LEFT EARLY already matched; SCH DURATION still decides). Real-data effect (27519,
+   28596, 28646, 4036626, 16850, 90119785) must be confirmed with a local replay — 90119785
+   would export its (separately matching) late-arrival ABSENT once released. `reg-189` (g)(h)(i).
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

@@ -99,24 +99,55 @@ export interface ComparisonContext {
    * policy outcome key (a rule id, or 'none') the Early/Late Logout rules could reach — more
    * than one only when the COVER credit for that instant cannot be pinned down. taaOutcome is
    * the outcome TAA itself reached. Absent => no release is ever proved from LEFT EARLY. */
-  logoutPolicy?: { outcomesAt: (logout: Date) => Set<string>; taaOutcome: string };
+  logoutPolicy?: {
+    outcomesAt: (logout: Date) => Set<string>;
+    taaOutcome: string;
+    /** Schedule ends Cognos may have measured LEFT EARLY from: the raw end, and the end of any
+     * COVER chained contiguously onto it (Cognos's SCH sometimes includes such a COVER). */
+    cognosEndCandidates: Date[];
+  };
 }
 
-/** True only when Cognos's LEFT EARLY figure, placed on TAA's own basis (same anchors,
- * release/nursing adjustment, COVER credit, tier and rules — ctx.logoutPolicy), reaches exactly
- * the policy outcome TAA reached, AND the evaluator reproduces TAA's outcome from TAA's own
- * logout (self-check: if it can't, nothing is proved and the row stays held). Replaces the old
- * raw-figure band test, which compared two raw figures against the Late Logout band and so
- * missed a pair straddling it on the release-adjusted basis (Cognos 29 vs TAA 31 with a 30m
- * trailing RLS = 59m vs 61m: no action vs ABSENT). */
-export function logoutOutcomeMatchesTaa(ctx: ComparisonContext, cognosLeftEarlyMin: number): boolean {
+/** Every instant Cognos's own row may mean by "the employee left". Primary evidence is its
+ * SIGIN OUT wall-clock time, placed on the calendar day nearest TAA's CMS logout (the column
+ * carries no date — cross-midnight safe). LEFT EARLY is only a DERIVED figure (logout minus
+ * Cognos's schedule end, an anchor Cognos never exports: sometimes the raw end, sometimes the end
+ * of a COVER its SCH includes). SIGIN OUT alone is used only when it is CONSISTENT with LEFT
+ * EARLY against one of those plausible ends (±tol); when Cognos contradicts itself, both
+ * readings (SIGIN OUT, and raw end + LEFT EARLY) are returned and both must reach TAA's outcome.
+ * Blank SIGIN OUT => raw end + LEFT EARLY. The logout time itself is also compared in the SIGIN
+ * OUT column, and the schedule end in DUTY1 / SCH DURATION. */
+function cognosLogoutInstants(ctx: ComparisonContext, cognosLeftEarlyMin: number, tol: number, cognosSignOut?: string): Date[] {
+  const fromLeftEarly = ctx.rawEnd ? new Date(ctx.rawEnd.getTime() + cognosLeftEarlyMin * 60000) : null;
+  const clock = cognosSignOut ? parseClockTimeString(cognosSignOut.trim()) : null;
+  if (!clock || !ctx.actualLastLogout) return fromLeftEarly ? [fromLeftEarly] : [];
+  const ref = ctx.actualLastLogout;
+  const sameDay = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), clock.hours, clock.minutes, 0);
+  const signOut = [-1, 0, 1].map(d => new Date(sameDay.getTime() + d * 86400000))
+    .reduce((best, c) => Math.abs(c.getTime() - ref.getTime()) < Math.abs(best.getTime() - ref.getTime()) ? c : best);
+  const ends = ctx.logoutPolicy?.cognosEndCandidates ?? (ctx.rawEnd ? [ctx.rawEnd] : []);
+  const consistent = ends.some(end => Math.abs(Math.round((signOut.getTime() - end.getTime()) / 60000) - cognosLeftEarlyMin) <= tol);
+  return consistent || !fromLeftEarly ? [signOut] : [signOut, fromLeftEarly];
+}
+
+/** True only when Cognos's view of the logout, placed on TAA's own basis (same anchors,
+ * release/nursing adjustment, COVER credit, Cover Not Attended, tier and rules —
+ * ctx.logoutPolicy), reaches exactly the policy outcome TAA reached, AND the evaluator
+ * reproduces TAA's outcome from TAA's own logout (self-check: if it can't, nothing is proved and
+ * the row stays held). Replaces the old raw-figure band test, which compared two raw figures
+ * against the Late Logout band and so missed a pair straddling it on the release-adjusted basis
+ * (Cognos out 15:29 vs CMS 15:31 with a 30m trailing RLS = 59m vs 61m: no action vs ABSENT). */
+export function logoutOutcomeMatchesTaa(ctx: ComparisonContext, cognosLeftEarlyMin: number, tol: number, cognosSignOut?: string): boolean {
   const policy = ctx.logoutPolicy;
-  if (!policy || !ctx.rawEnd || !ctx.actualLastLogout) return false;
+  if (!policy || !ctx.actualLastLogout) return false;
   const own = policy.outcomesAt(ctx.actualLastLogout);
   if (own.size !== 1 || !own.has(policy.taaOutcome)) return false;
-  const cognosLogout = new Date(ctx.rawEnd.getTime() + cognosLeftEarlyMin * 60000);
-  const theirs = policy.outcomesAt(cognosLogout);
-  return theirs.size === 1 && theirs.has(policy.taaOutcome);
+  const instants = cognosLogoutInstants(ctx, cognosLeftEarlyMin, tol, cognosSignOut);
+  if (instants.length === 0) return false;
+  return instants.every(instant => {
+    const theirs = policy.outcomesAt(instant);
+    return theirs.size === 1 && theirs.has(policy.taaOutcome);
+  });
 }
 
 export interface RowComparisonResult {
@@ -715,7 +746,7 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
     const sameLogoutOutcome =
       config.releaseProvenSafeHolds &&
       leftEarlyRawVal !== null && cognosLeftEarly !== null && leftEarlyRawVal >= 0 && cognosLeftEarly >= 0 &&
-      logoutOutcomeMatchesTaa(ctx, leftEarlyRawVal);
+      logoutOutcomeMatchesTaa(ctx, leftEarlyRawVal, tol, cognos['SIGIN OUT']);
     comparisons.push(
       leftEarlyComparison.status === 'MISMATCH' && sameLogoutOutcome
         ? { ...leftEarlyComparison, status: 'NOT_COMPARABLE', note: 'Same logout outcome on TAA\'s basis (release-adjusted end, COVER credit, tier rules) — the minute gap comes from Cognos session data TAA cannot see' }
