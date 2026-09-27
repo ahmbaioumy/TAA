@@ -26,7 +26,7 @@ npm run build
 node assemble-standalone.cjs
 ```
 
-This regenerates `../TAA_Workspace.html` from the fresh `dist/` output. Always open the
+This regenerates `TAA_Workspace.html` (repo root) from the fresh `dist/` output. Always open the
 regenerated file in a real browser afterward — a successful build alone doesn't prove the
 assembled standalone file renders (see `TAA_KNOWLEDGE_BASE.md` §7 for a case where it silently
 didn't).

@@ -89,6 +89,10 @@ export interface ComparisonContext {
    * genuine ASPECT-recorded evidence, safe to compare against Cognos LEAVE HR. */
   leaveMinutes: number | null;
   isLeaveDay: boolean;
+  /** Flex-tagged employee (doc/PRD.md §4.8). Cognos prints a flex employee's fixed BASE
+   * roster in DUTY1 and measures LATE START / LEFT EARLY against it, while ASPECT holds the
+   * flex-moved shift TAA measures against by design — see the flex roster downgrade below. */
+  isFlex?: boolean;
 }
 
 export interface RowComparisonResult {
@@ -457,6 +461,17 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
   // disagreement. null when DUTY1 doesn't parse on both sides (nothing to fold against).
   let duty1StartMoveMin: number | null = null;
   let duty1EndMoveMin: number | null = null;
+  // Flex roster translation (held-review reduction, 2026-09-27): signed minutes ASPECT's
+  // DUTY1 start moved relative to Cognos's (+ => ASPECT later), set ONLY for a flex
+  // employee whose DUTY1 differs from Cognos by a pure translation — same shift length
+  // (±tol), start and end moved by the same amount. Cognos prints a flex employee's fixed
+  // BASE roster (e.g. 07:00-15:00 every day) while ASPECT holds the flex-moved shift of
+  // the same length, and doc/PRD.md §4.8 measures flex attendance against the ASPECT shift
+  // by design — so the whole difference is a known Cognos reporting basis, not a
+  // disagreement about what happened. Measured on the real 23/09 sample: 43 of 50
+  // SHIFT-only MISMATCH_FOUND holds were exactly this shape. null => no downgrade.
+  let flexRosterShiftMin: number | null = null;
+  let flexRosterEndShiftMin: number | null = null;
 
   // Schedule-definition columns
   if (suppressScheduleColumns) {
@@ -477,6 +492,20 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
         const recEndMin = ctx.duty1Block.end.getHours() * 60 + ctx.duty1Block.end.getMinutes();
         duty1StartMoveMin = timeOfDayDiffMinutes(parsedDuty1.startMin, recStartMin);
         duty1EndMoveMin = timeOfDayDiffMinutes(parsedDuty1.endMin, recEndMin);
+        const signedWrap = (d: number) => ((d % 1440) + 2160) % 1440 - 720; // -> [-720, 720)
+        const startShift = signedWrap(recStartMin - parsedDuty1.startMin);
+        const endShift = signedWrap(recEndMin - parsedDuty1.endMin);
+        // Kill switch (releaseProvenSafeHolds): when off, flexRosterShiftMin stays null and
+        // DUTY1 / LATE START / LEFT EARLY stay MISMATCH exactly as before.
+        if (config.releaseProvenSafeHolds && ctx.isFlex && Math.abs(startShift - endShift) <= tol) {
+          flexRosterShiftMin = startShift;
+          flexRosterEndShiftMin = endShift;
+          comparisons[comparisons.length - 1] = {
+            ...comparisons[comparisons.length - 1],
+            status: 'NOT_COMPARABLE',
+            note: `Flex staff: Cognos prints the base roster; ASPECT holds the same-length shift moved ${startShift > 0 ? 'later' : 'earlier'} by ${Math.abs(startShift)}m, which TAA measures against by design (PRD §4.8)`,
+          };
+        }
       }
     }
     comparisons.push({
@@ -523,6 +552,9 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
         schDurationComparison.note = `Cognos SCH DURATION did not deduct the ${ctx.removalMinutes}m release/nursing/split that ASPECT records for this day.`;
       } else if (gap !== null && gap > 0 && ctx.removalMinutes > 0 && gap < ctx.removalMinutes) {
         schDurationComparison.note = `Cognos SCH DURATION is ${gap}m higher; ASPECT records ${ctx.removalMinutes}m of release/nursing/split — Cognos likely did not deduct all of it.`;
+      } else if (gap !== null && gap < 0 && ctx.lateSegmentMinutes > 0 && ctx.coverMinutes > 0 && Math.abs(-gap - ctx.coverMinutes) <= tol) {
+        // Same exception as the engine's Gate B gapIsWholeCover: the gap is the whole COVER.
+        schDurationComparison.note = `Cognos SCH DURATION leaves out the whole ${ctx.coverMinutes}m make-up COVER ASPECT records for the ${ctx.lateSegmentMinutes}m LATE — the COVER was probably added after the Cognos extract.`;
       } else if (gap !== null && gap !== 0 && ctx.lateSegmentMinutes > 0 && Math.abs(gap) <= ctx.lateSegmentMinutes + tol) {
         schDurationComparison.note = `Differs by about the LATE make-up minutes (${ctx.lateSegmentMinutes}m) — the ASPECT and Cognos extracts likely disagree on whether the make-up COVER exists yet.`;
       } else if (gap !== null && gap < 0 && ctx.coverMinutes > 0 && Math.abs(gap) <= ctx.coverMinutes + tol) {
@@ -735,10 +767,25 @@ export function compareCognosRow(cognos: CognosRecord, ctx: ComparisonContext, c
   const leftEarlyGapMin = leftEarlyRawVal !== null && cognosLeftEarly !== null ? Math.abs(leftEarlyRawVal - cognosLeftEarly) : null;
   const foldLateStart = duty1StartMoveMin !== null && lateStartGapMin !== null && Math.abs(lateStartGapMin - duty1StartMoveMin) <= tol;
   const foldLeftEarly = duty1EndMoveMin !== null && leftEarlyGapMin !== null && Math.abs(leftEarlyGapMin - duty1EndMoveMin) <= tol;
-  for (const c of comparisons) {
+  // Flex roster translation, continued (see flexRosterShiftMin): Cognos measures LATE START
+  // (roster start - login) and LEFT EARLY (logout - roster end) against the base roster, TAA
+  // against the moved ASPECT shift — so on a pure translation each gap must equal the shift's
+  // move EXACTLY, in the right direction (TAA - Cognos LATE START = start move; Cognos - TAA
+  // LEFT EARLY = end move). Only then is the column's whole difference the roster basis;
+  // any other gap (a real disagreement on top of the move) stays MISMATCH and still holds.
+  const flexExplainsLateStart = flexRosterShiftMin !== null && lateStartRawVal !== null && cognosLateStart !== null
+    && Math.abs((cognosLateStart - lateStartRawVal) - flexRosterShiftMin) <= tol;
+  const flexExplainsLeftEarly = flexRosterEndShiftMin !== null && leftEarlyRawVal !== null && cognosLeftEarly !== null
+    && Math.abs((leftEarlyRawVal - cognosLeftEarly) - flexRosterEndShiftMin) <= tol;
+  const flexRosterNote = `Flex staff: Cognos measured this against its base roster, TAA against the moved ASPECT shift — the gap is exactly the ${Math.abs(flexRosterShiftMin ?? 0)}m roster move`;
+  for (let i = 0; i < comparisons.length; i++) {
+    const c = comparisons[i];
     c.policyGroup = policyGroupForColumn(c.column);
     if (c.column === 'LATE START' && foldLateStart) c.policyGroup = 'SHIFT';
     if (c.column === 'LEFT EARLY' && foldLeftEarly) c.policyGroup = 'SHIFT';
+    if (c.status === 'MISMATCH' && ((c.column === 'LATE START' && flexExplainsLateStart) || (c.column === 'LEFT EARLY' && flexExplainsLeftEarly))) {
+      comparisons[i] = { ...c, policyGroup: 'SHIFT', status: 'NOT_COMPARABLE', note: flexRosterNote };
+    }
   }
 
   const mismatchColumns = comparisons.filter(c => c.status === 'MISMATCH').map(c => c.column);
