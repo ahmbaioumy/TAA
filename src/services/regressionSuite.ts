@@ -10203,6 +10203,17 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
   // band 6-60m -> LATE_AND_COVER). All codes come from config, proven by reg-208.
   {
     const day = '20/08/2026';
+    // The suite runs on the LIVE registry, so every option these cases depend on is pinned here
+    // (a user's own retainLateCoverOnAbsent / excuse toggle / code lists must not flip them).
+    // Cases that test a different value override it explicitly.
+    const lateCfg: ConfigRegistry = {
+      ...config,
+      retainLateCoverOnAbsent: false,
+      technicalSegmentsExcuseLateLogin: true,
+      lateSegmentCode: 'LATE',
+      authorisedLateSegmentCodes: ['LATE-A'],
+      lateOverlapAdjustSegmentCodes: ['BRFNG'],
+    };
     type Extra = [code: string, start: string, stop: string];
     const lateCase = (o: { pf: string; login: string; logout?: string; extra: Extra[]; cfg?: ConfigRegistry; flex?: boolean; coverageSwipe?: boolean }) => {
       const logout = o.logout ?? '16:00';
@@ -10233,14 +10244,14 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       // An unrelated login proving the CMS export reaches past the shift end (else an early
       // last punch is INSUFFICIENT_CMS_COVERAGE, not an Early Logout) — same as reg-197.
       if (o.coverageSwipe) punches.push(swipeAt('29999', makeDt('21/08/2026', '08:00:00')));
-      const cfg = o.cfg ?? config;
+      const cfg = o.cfg ?? lateCfg;
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: cfg });
       const row = out.rows[0];
       const gen = row?.details.generatedCorrections ?? [];
       const describe = gen.map(c => `${c.Code},${c.SegmentCode},${c.SegmentStarttime},${c.Segmentduration}`).join(' | ') || '(no corrections)';
       return { row, gen, describe, cfg };
     };
-    const techCfg: ConfigRegistry = { ...config, segmentGlossary: { ...config.segmentGlossary, TECH: { code: 'TECH', role: 'NO_EFFECT', description: 'fixture: technical outage' } } };
+    const techCfg: ConfigRegistry = { ...lateCfg, segmentGlossary: { ...lateCfg.segmentGlossary, TECH: { code: 'TECH', role: 'NO_EFFECT', description: 'fixture: technical outage' } } };
     const base = { category: 'Late excuse / late overlap (2026-09-28)', cognosFlawedVerdict: 'n/a' };
     const push = (id: string, name: string, inputDescription: string, expectedVerdict: string, r: ReturnType<typeof lateCase>, passed: boolean, payrollImpact: string) => {
       results.push({ ...base, id, name, inputDescription, expectedVerdict, expectedAction: expectedVerdict,
@@ -10324,7 +10335,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       const r = lateCase({ pf: '8199011', login: '08:20', logout: '13:00', extra: [['BRFNG', '08:00', '08:15']], coverageSwipe: true });
       const absent = r.row?.TAA_RESULT_CATEGORY === 'MARKED_ABSENT';
       // retainLateCoverOnAbsent on: the LATE is kept, so its briefing delete is kept with it.
-      const kept = lateCase({ pf: '8199014', login: '08:20', logout: '13:00', extra: [['BRFNG', '08:00', '08:15']], coverageSwipe: true, cfg: { ...config, retainLateCoverOnAbsent: true } });
+      const kept = lateCase({ pf: '8199014', login: '08:20', logout: '13:00', extra: [['BRFNG', '08:00', '08:15']], coverageSwipe: true, cfg: { ...lateCfg, retainLateCoverOnAbsent: true } });
       const passed = absent && !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'BRFNG' || c.lateOverlapAdjust)
         && has(kept.gen, config.aspectNormalActionCode, 'LATE') && has(kept.gen, config.aspectDeleteActionCode, 'BRFNG', '08:00', '00:15');
       push('reg-207', 'Absent Day: BRFNG Delete Row Is Dropped With the LATE, Briefing Left As Scheduled', 'SHIFT + BRFNG 08:00-08:15; login 08:20, logout 13:00 (Early Logout -> Absent)',
@@ -10333,9 +10344,9 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
     // reg-208 — no hardcoding: renamed codes behave identically, and the shipped names do nothing.
     {
       const customCfg: ConfigRegistry = {
-        ...config,
+        ...lateCfg,
         segmentGlossary: {
-          ...config.segmentGlossary,
+          ...lateCfg.segmentGlossary,
           'AUTH-L': { code: 'AUTH-L', role: 'NO_EFFECT', description: 'fixture' },
           HUDDLE: { code: 'HUDDLE', role: 'NO_EFFECT', description: 'fixture' },
         },
