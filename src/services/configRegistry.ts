@@ -404,6 +404,10 @@ export const DEFAULT_SEGMENT_GLOSSARY: Record<string, GlossaryEntry> = {
 
   // Write-Only Output Codes
   'LATE': { code: 'LATE', role: 'NO_EFFECT', isWriteOnlyAction: true, description: 'Output: Late Arrival Correction' },
+  // Late Authorised (business rule 2026-09-28): approved during an incident/critical situation.
+  // Paid time (NO_EFFECT); listed in authorisedLateSegmentCodes so the late minutes it covers
+  // are never charged.
+  'LATE-A': { code: 'LATE-A', role: 'NO_EFFECT', description: 'Late Authorised (incident-approved)' },
   'LOG_OFF': { code: 'LOG_OFF', role: 'NO_EFFECT', isWriteOnlyAction: true, description: 'Output: Early Logout Correction' },
   'ABSENT': { code: 'ABSENT', role: 'NO_EFFECT', isWriteOnlyAction: true, description: 'Output: Full Absence Day Marker' },
   'ABSENT NS/NC': { code: 'ABSENT NS/NC', role: 'NO_EFFECT', isWriteOnlyAction: true, description: 'Output: No Show / No Call Absence' },
@@ -496,6 +500,13 @@ export const DEFAULT_CONFIG: ConfigRegistry = {
 
   technicalSegmentCodes: ['TECH', 'TECH2'],
   technicalSegmentToleranceMinutes: 0,
+  technicalSegmentsExcuseLateLogin: true,
+  authorisedLateSegmentCodes: ['LATE-A'],
+  lateSegmentCode: 'LATE',
+  lateOverlapAdjustSegmentCodes: ['BRFNG'],
+  aspectDeleteActionCode: '20',
+  lateOverlapDeleteMemo: 'TAA Late covers segment - deleted',
+  lateOverlapTrimMemo: 'TAA Late overlap - segment starts after Late',
   releaseGridMinutes: 30,
   releaseGridCodes: ['RLS', 'RLS-2H', 'RLS-3H', 'UN_RLS', 'Cover_RLS'],
 
@@ -646,6 +657,23 @@ export function validateConfigForRun(config: ConfigRegistry): ConfigValidationIs
   if (!config.shiftUpdateNewCode?.trim()) {
     issues.push({ field: 'shiftUpdateNewCode', kind: 'value', message: 'shiftUpdateNewCode must not be blank.' });
   }
+  if (!config.lateSegmentCode?.trim()) {
+    issues.push({ field: 'lateSegmentCode', kind: 'value', message: 'lateSegmentCode must not be blank.' });
+  }
+  if (!config.aspectDeleteActionCode?.trim()) {
+    issues.push({ field: 'aspectDeleteActionCode', kind: 'value', message: 'aspectDeleteActionCode must not be blank.' });
+  }
+  // Late excuse / late-overlap codes must carry a schedule-hours classification, same fail-closed
+  // rule as leave codes below — an unclassified code would otherwise surface only as a deep
+  // UNCLASSIFIED_SEGMENT_CODE hold on the exact rows these rules exist to handle.
+  (['authorisedLateSegmentCodes', 'lateOverlapAdjustSegmentCodes'] as const).forEach(field => {
+    (config[field] || []).forEach(code => {
+      const trimmed = (code || '').trim();
+      if (trimmed && !lookupGlossary(config.segmentGlossary, trimmed)) {
+        issues.push({ field, kind: 'value', message: `${field} code "${trimmed}" has no schedule-hours classification in the Segment Glossary — classify it before running reconciliation.` });
+      }
+    });
+  });
   if (!config.otToShiftConversionCode?.trim()) {
     issues.push({ field: 'otToShiftConversionCode', kind: 'value', message: 'otToShiftConversionCode must not be blank.' });
   }

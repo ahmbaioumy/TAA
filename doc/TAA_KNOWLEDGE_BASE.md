@@ -1620,6 +1620,33 @@ punch (false Absent), or makes whichever day won it look Present with a ~72 h sp
   unaffected. Mutation-checked: disabling the gate fails `reg-197`.
 - `holdPolicy.test.ts` §12 and the `configExportImport.test.ts` tampered-id case.
 
+## 7v. Late excuse (LATE-A / TECH) and late overlap (BRFNG) (2026-09-28)
+
+**Business rules (user-confirmed):**
+- `LATE-A` = Late Authorised, approved in ASPECT during an incident/critical situation. Paid
+  (`NO_EFFECT`). Late-login minutes inside it are never charged; if the agent arrived after it
+  ended, only the extra minutes are charged (LATE + COVER from the first uncovered minute).
+- TECH/TECH2 at shift start: the owner wants no LATE **and no hold** while TECH stays paid.
+  Before this, `NO_EFFECT` TECH built LATE+COVER and held the row
+  (`TECHNICAL_SEGMENT_COVERS_VARIANCE`); a partly covered late charged the FULL late. `REMOVAL`
+  would have avoided the late but removes TECH minutes from scheduled (paid) hours — rejected.
+  Now `technicalSegmentsExcuseLateLogin` (default on) makes TECH excuse late minutes exactly
+  like LATE-A. The §4.15 hold still covers early/late logout and Cover Not Attended.
+- A briefing (`BRFNG`) is always within the shift. A TAA-written LATE that fully covers it
+  deletes it (ASPECT code `20`); a shorter LATE trims it to start at the LATE end (`10`/`11`).
+  A late already recorded in ASPECT (LATE or fully excused) gets no briefing change. On an
+  Absent day the briefing rows are dropped with the LATE — Absent never deletes the briefing.
+
+**Implementation:** `computeLateExcuse` / `buildLateOverlapCorrections` in
+`reconciliationEngine.ts`; briefing rows carry the never-exported `lateOverlapAdjust` flag so
+the Absent strip removes them with the LATE. The engine's `'LATE'` literals were replaced by
+`config.lateSegmentCode` (`LATE_COVER_SEGMENT_CODES` is now derived from the default config).
+All codes/memos are Config Registry values (PRD §4.15a table). `reg-160`–`reg-171` now pin
+`technicalSegmentsExcuseLateLogin: false` (they test the late-login hold itself); new
+`reg-199`–`reg-209` cover full/partial/below-band excuse, TECH with the toggle both ways,
+delete, trim, untouched non-overlap/team tag, already-recorded LATE, Absent strip (and
+`retainLateCoverOnAbsent`), renamed codes (no hardcoding), and flex. Suite 250 → 261.
+
 ## 8. Open decisions before production implementation
 
 Walked with the user; 9 of 10 resolved (1 stays open pending user-supplied text):

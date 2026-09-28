@@ -272,6 +272,13 @@ manager-CC lookup.
   only when **every** variance interval that actually charged a penalty on the row is covered by
   the row's configured technical segments to within tolerance, and it must always sit below every
   forced code in the hold cascade — never seeded into `forcedHoldReason`.
+- **Late excuse / late overlap (PRD §4.15a, 2026-09-28):** late-login minutes inside an
+  authorised-late (`authorisedLateSegmentCodes`, `LATE-A`) or — with
+  `technicalSegmentsExcuseLateLogin` on — technical segment are never charged and never held;
+  only the uncovered excess goes through the bands. A TAA-written LATE deletes/trims any
+  overlapping `lateOverlapAdjustSegmentCodes` segment (`BRFNG`); those rows carry
+  `lateOverlapAdjust` and are dropped with the LATE on an Absent day. Never write a literal
+  `'LATE'` segment code in the engine — use `config.lateSegmentCode`.
 - `OT1` (normal overtime) and `OT2` (public-holiday overtime) are **different pay rates** —
   never merge them.
 - **Absent + OT co-occurrence (PRD §4.6c, replace-pair decision 2026-09-15):** any day marked

@@ -2,6 +2,7 @@ import {
   CognosRecord,
   AspectSegment,
   AspectIdentity,
+  AspectCorrectionRow,
   CMSPunch,
   ConfigRegistry,
   EmailActionItem,
@@ -7542,6 +7543,10 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
   // a case is specifically testing the tolerance or the no-hardcoding requirement.
   {
     const techGlossary = (code: string) => ({ ...config.segmentGlossary, [code]: { code, role: 'NO_EFFECT' as const, description: 'WP5 fixture: technical outage' } });
+    // These cases pin the late-login TECHNICAL_SEGMENT_COVERS_VARIANCE hold itself, so they run with
+    // technicalSegmentsExcuseLateLogin off (2026-09-28: on by default, a TECH-covered late is excused
+    // instead of held — see the late-excuse cases reg-251+).
+    const wp5Config: ConfigRegistry = { ...config, technicalSegmentsExcuseLateLogin: false };
 
     // reg-160 — Acceptance case 14 AFTER: TECH exactly covers a 45m late-login variance.
     {
@@ -7559,7 +7564,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       ];
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP5 Tech Full Cover Agent', EMP_SORT_NAME: 'WP5 TECH FULL COVER AGENT' }];
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:45:00'), LogoutDateTime: makeDt(day, '17:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLate = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'LATE');
@@ -7600,7 +7605,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
         // WP8: keeps this day from reading as a truncated export (see the identical note in `boundary`).
         { Date: day, LoginID: 'sentinel-export-open', LoginDateTime: makeDt(day, '23:30:00'), LogoutDateTime: makeDt(day, '23:30:03') },
       ];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLogoff = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'Log_off');
@@ -7637,7 +7642,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       ];
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP5 Tech Partial Agent', EMP_SORT_NAME: 'WP5 TECH PARTIAL AGENT' }];
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:45:00'), LogoutDateTime: makeDt(day, '17:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLate = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'LATE');
@@ -7673,7 +7678,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       ];
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP5 Tech Tolerance Agent', EMP_SORT_NAME: 'WP5 TECH TOLERANCE AGENT' }];
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:45:00'), LogoutDateTime: makeDt(day, '17:00:00') }];
-      const baseTechConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const baseTechConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const outTol0 = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: { ...baseTechConfig, technicalSegmentToleranceMinutes: 0 } });
       const outTol2 = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: { ...baseTechConfig, technicalSegmentToleranceMinutes: 2 } });
       const row0 = outTol0.rows[0];
@@ -7710,7 +7715,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       ];
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP5 Glitch Code Agent', EMP_SORT_NAME: 'WP5 GLITCH CODE AGENT' }];
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:45:00'), LogoutDateTime: makeDt(day, '17:00:00') }];
-      const glitchConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('GLITCH'), technicalSegmentCodes: ['GLITCH'] };
+      const glitchConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('GLITCH'), technicalSegmentCodes: ['GLITCH'] };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: glitchConfig });
       const row = out.rows[0];
       const passed = row?.holdReason === 'TECHNICAL_SEGMENT_COVERS_VARIANCE';
@@ -7750,7 +7755,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
         // WP8: keeps this day from reading as a truncated export (see the identical note in `boundary`).
         { Date: day, LoginID: 'sentinel-export-open', LoginDateTime: makeDt(day, '23:30:00'), LogoutDateTime: makeDt(day, '23:30:03') },
       ];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLate = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'LATE');
@@ -7791,7 +7796,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       // the cover window starts exactly where attendance stops, so the whole 15m cover is
       // unattended (0m overlap) without also firing an unrelated early-logout finding.
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:00:00'), LogoutDateTime: makeDt(day, '16:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasAbsentCorrection = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'ABSENT' && c.Memo.includes('Cover Not Attended'));
@@ -7849,7 +7854,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       ];
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP5 Tech Forced Hold Agent', EMP_SORT_NAME: 'WP5 TECH FORCED HOLD AGENT' }];
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '09:45:00'), LogoutDateTime: makeDt(day, '17:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const passed = row?.holdReason === 'UNCLASSIFIED_SEGMENT_CODE' && isForcedHoldReason(row?.holdReason) === true;
@@ -7955,7 +7960,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       // this shape does not exist in the sample. Login moved to the TECH segment's own end
       // (14:12), which is what makes the variance interval align exactly with the real segment.
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '14:12:00'), LogoutDateTime: makeDt(day, '22:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLate = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'LATE');
@@ -7994,7 +7999,7 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       const identities: AspectIdentity[] = [{ EMP_ID: pfNo, EMP_LAST_NAME: 'WP7 Real-Segment Agent (control)', EMP_SORT_NAME: 'WP7 REAL SEGMENT AGENT CONTROL' }];
       // This is the real employee's actual behaviour that day: on time, full shift attended.
       const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, '14:00:00'), LogoutDateTime: makeDt(day, '22:00:00') }];
-      const techConfig: ConfigRegistry = { ...config, segmentGlossary: techGlossary('TECH') };
+      const techConfig: ConfigRegistry = { ...wp5Config, segmentGlossary: techGlossary('TECH') };
       const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: techConfig });
       const row = out.rows[0];
       const hasLate = !!row?.details.generatedCorrections.some(c => c.SegmentCode === 'LATE');
@@ -10188,6 +10193,167 @@ export function runAllRegressionTests(customConfig?: ConfigRegistry): TestCaseRe
       payrollImpact: 'The multi-day hold is scoped to the one login whose session spans days',
       calculationTrace: controlRows.map(summary),
     });
+  }
+
+  // ===== Late excuse + late overlap (business rules 2026-09-28) =====
+  // LATE-A (authorised late) and, with technicalSegmentsExcuseLateLogin on, TECH/TECH2 excuse the
+  // late minutes they cover — only the excess is charged, never held. A TAA-written LATE that
+  // overlaps a lateOverlapAdjustSegmentCodes segment (BRFNG) deletes it when fully covered, else
+  // trims it to start at the LATE end. Every case runs on a SHIFT 08:00-16:00, OPS tier (late
+  // band 6-60m -> LATE_AND_COVER). All codes come from config, proven by reg-208.
+  {
+    const day = '20/08/2026';
+    type Extra = [code: string, start: string, stop: string];
+    const lateCase = (o: { pf: string; login: string; logout?: string; extra: Extra[]; cfg?: ConfigRegistry; flex?: boolean; coverageSwipe?: boolean }) => {
+      const logout = o.logout ?? '16:00';
+      const [lh, lm] = o.login.split(':').map(Number);
+      const [oh, om] = logout.split(':').map(Number);
+      const lateMin = Math.max(0, (lh * 60 + lm) - 8 * 60);
+      const earlyMin = Math.max(0, 16 * 60 - (oh * 60 + om));
+      const worked = (oh * 60 + om) - (lh * 60 + lm);
+      const loginId = `2${o.pf.slice(-4)}`;
+      const name = o.flex ? `LATE RULES FLEX ${o.pf}` : `LATE RULES ${o.pf}`;
+      const cognos: CognosRecord = {
+        'SIGN IN DATE': '2026-08-20 00:00:00', SECTION: 'ECS', 'PF NO': o.pf, NAME: name, 'LOGIN ID': loginId,
+        DUTY1: '08:00 - 16:00', OT1: '', 'DUTY-2': '', 'OT-2': '', 'SCH DURATION': '8:00',
+        'SIGNIN DURATION': `${Math.floor(worked / 60)}:${String(worked % 60).padStart(2, '0')}`,
+        'SIGIN IN': o.login, 'SIGIN OUT': logout, 'LATE START': lateMin ? `-${lateMin}` : '0', 'LEFT EARLY': earlyMin ? `-${earlyMin}` : '0',
+        'LEAVE TYPE': '', 'LEAVE HR': '0', REMARK: '',
+      };
+      const segs: AspectSegment[] = [
+        { EMP_ID: o.pf, NOM_DATE: day, START_DATE: day, SEG_CODE: 'SHIFT', START_MOMENT: `${day} 08:00:00`, STOP_MOMENT: `${day} 16:00:00`, DURATION: 480 },
+        ...o.extra.map(([code, a, b]) => {
+          const [ah, am] = a.split(':').map(Number);
+          const [bh, bm] = b.split(':').map(Number);
+          return { EMP_ID: o.pf, NOM_DATE: day, START_DATE: day, SEG_CODE: code, START_MOMENT: `${day} ${a}:00`, STOP_MOMENT: `${day} ${b}:00`, DURATION: (bh * 60 + bm) - (ah * 60 + am) };
+        }),
+      ];
+      const identities: AspectIdentity[] = [{ EMP_ID: o.pf, EMP_LAST_NAME: name, EMP_SORT_NAME: name }];
+      const punches: CMSPunch[] = [{ Date: day, LoginID: loginId, LoginDateTime: makeDt(day, `${o.login}:00`), LogoutDateTime: makeDt(day, `${logout}:00`) }];
+      // An unrelated login proving the CMS export reaches past the shift end (else an early
+      // last punch is INSUFFICIENT_CMS_COVERAGE, not an Early Logout) — same as reg-197.
+      if (o.coverageSwipe) punches.push(swipeAt('29999', makeDt('21/08/2026', '08:00:00')));
+      const cfg = o.cfg ?? config;
+      const out = runReconciliation({ processingDate: SUITE_RUN_DATE, cognosRecords: [cognos], aspectSegments: segs, aspectIdentities: identities, cmsPunches: punches, config: cfg });
+      const row = out.rows[0];
+      const gen = row?.details.generatedCorrections ?? [];
+      const describe = gen.map(c => `${c.Code},${c.SegmentCode},${c.SegmentStarttime},${c.Segmentduration}`).join(' | ') || '(no corrections)';
+      return { row, gen, describe, cfg };
+    };
+    const techCfg: ConfigRegistry = { ...config, segmentGlossary: { ...config.segmentGlossary, TECH: { code: 'TECH', role: 'NO_EFFECT', description: 'fixture: technical outage' } } };
+    const base = { category: 'Late excuse / late overlap (2026-09-28)', cognosFlawedVerdict: 'n/a' };
+    const push = (id: string, name: string, inputDescription: string, expectedVerdict: string, r: ReturnType<typeof lateCase>, passed: boolean, payrollImpact: string) => {
+      results.push({ ...base, id, name, inputDescription, expectedVerdict, expectedAction: expectedVerdict,
+        actualVerdict: `verdict=${r.row?.TAA_VERDICT}; late=${r.row?.TAA_LATE_MIN}; hold=${r.row?.holdReason ?? 'none'}; ${r.describe}`,
+        actualAction: r.row?.TAA_ACTION ?? '', passed, payrollImpact, calculationTrace: [r.row?.details.ruleFired ?? ''] });
+    };
+    const has = (gen: AspectCorrectionRow[], code: string, seg: string, start?: string, dur?: string) =>
+      gen.some(c => c.Code === code && c.SegmentCode === seg && (start === undefined || c.SegmentStarttime === start) && (dur === undefined || c.Segmentduration === dur));
+
+    // reg-199 — LATE-A covers the whole late: nothing charged, nothing held.
+    {
+      const r = lateCase({ pf: '8199001', login: '08:20', extra: [['LATE-A', '08:00', '08:20']] });
+      const passed = r.row?.TAA_LATE_MIN === 20 && r.row?.TAA_VERDICT === 'LATE'
+        && !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'COVER') && r.row?.holdReason !== 'TECHNICAL_SEGMENT_COVERS_VARIANCE';
+      push('reg-199', 'LATE-A Covering the Whole Late: No LATE, No COVER, Not Held', 'SHIFT 08:00-16:00 + LATE-A 08:00-08:20; login 08:20',
+        'LATE verdict (20m measured), no LATE/COVER correction', r, passed, 'An incident-approved late is never docked');
+    }
+    // reg-200 — LATE-A 10m, agent 25m late: only the 15m excess is charged, starting where LATE-A ends.
+    {
+      const r = lateCase({ pf: '8199002', login: '08:25', extra: [['LATE-A', '08:00', '08:10']] });
+      const passed = has(r.gen, config.aspectNormalActionCode, 'LATE', '08:10', '00:15')
+        && r.gen.filter(c => c.SegmentCode === 'COVER').every(c => c.Segmentduration === '00:15') && r.gen.some(c => c.SegmentCode === 'COVER')
+        && r.row?.TAA_LATE_MIN === 25;
+      push('reg-200', 'LATE-A Shorter Than the Late: Only the Excess (15m) Is Charged From 08:10', 'SHIFT 08:00-16:00 + LATE-A 08:00-08:10; login 08:25',
+        'LATE 08:10 00:15 + COVER 00:15', r, passed, 'Charges exactly the unauthorised minutes, never the authorised ones');
+    }
+    // reg-201 — excess below the Late Login band (3m < 6m): no action.
+    {
+      const r = lateCase({ pf: '8199003', login: '08:23', extra: [['LATE-A', '08:00', '08:20']] });
+      const passed = !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'COVER');
+      push('reg-201', 'LATE-A Excess Below the Late Band (3m): No Correction', 'SHIFT 08:00-16:00 + LATE-A 08:00-08:20; login 08:23',
+        'no LATE/COVER (band applied to the 3m excess, not the 23m)', r, passed, 'The band threshold judges only the chargeable minutes');
+    }
+    // reg-202 — TECH at shift start excuses the late like LATE-A (toggle on) — no hold; excess charged from TECH end.
+    {
+      const full = lateCase({ pf: '8199004', login: '08:12', extra: [['TECH', '08:00', '08:12']], cfg: techCfg });
+      const part = lateCase({ pf: '8199005', login: '08:30', extra: [['TECH', '08:00', '08:12']], cfg: techCfg });
+      const off = lateCase({ pf: '8199006', login: '08:12', extra: [['TECH', '08:00', '08:12']], cfg: { ...techCfg, technicalSegmentsExcuseLateLogin: false } });
+      const passed = !full.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'COVER') && full.row?.holdReason !== 'TECHNICAL_SEGMENT_COVERS_VARIANCE'
+        && has(part.gen, config.aspectNormalActionCode, 'LATE', '08:12', '00:18') && part.row?.holdReason !== 'TECHNICAL_SEGMENT_COVERS_VARIANCE'
+        && off.row?.holdReason === 'TECHNICAL_SEGMENT_COVERS_VARIANCE';
+      push('reg-202', 'TECH at Shift Start Excuses the Late (No Hold); Excess Charged From TECH End; Toggle Off Restores the Hold',
+        'SHIFT 08:00-16:00 + TECH 08:00-08:12 (NO_EFFECT); logins 08:12 / 08:30; third run with technicalSegmentsExcuseLateLogin=false',
+        '08:12: no LATE, not held | 08:30: LATE 08:12 00:18 | toggle off: TECHNICAL_SEGMENT_COVERS_VARIANCE', full, passed,
+        `TECH time stays paid and is never charged as late. 08:30 run: ${part.describe}; toggle-off hold=${off.row?.holdReason}`);
+    }
+    // reg-203 — BRFNG fully inside the LATE window: deleted (code 20), and the delete reaches the CSV.
+    {
+      const r = lateCase({ pf: '8199007', login: '08:20', extra: [['BRFNG', '08:00', '08:15']] });
+      const csv = generateAspectCorrectionsCsv(r.gen);
+      const passed = has(r.gen, config.aspectDeleteActionCode, 'BRFNG', '08:00', '00:15') && has(r.gen, config.aspectNormalActionCode, 'LATE', '08:00', '00:20')
+        && csv.includes(`${config.aspectDeleteActionCode},8199007,BRFNG,${day},${day},08:00,00:15,`) && !csv.includes('lateOverlapAdjust')
+        && !r.gen.some(c => c.SegmentCode === 'BRFNG' && c.Code !== config.aspectDeleteActionCode);
+      push('reg-203', 'BRFNG Fully Covered by the LATE (15m <= 20m) Is Deleted', 'SHIFT 08:00-16:00 + BRFNG 08:00-08:15; login 08:20',
+        'LATE 08:00 00:20 + delete row 20,BRFNG,08:00,00:15', r, passed, 'The briefing never overlaps a late the agent was not present for');
+    }
+    // reg-204 — LATE shorter than BRFNG: trimmed via a 10/11 pair to start at the LATE end.
+    {
+      const r = lateCase({ pf: '8199008', login: '08:10', extra: [['BRFNG', '08:00', '08:15']] });
+      const passed = has(r.gen, config.shiftUpdateOriginalCode, 'BRFNG', '08:00', '00:15') && has(r.gen, config.shiftUpdateNewCode, 'BRFNG', '08:10', '00:05')
+        && !has(r.gen, config.aspectDeleteActionCode, 'BRFNG');
+      push('reg-204', 'LATE Shorter Than BRFNG (10m < 15m): Briefing Trimmed to 08:10-08:15', 'SHIFT 08:00-16:00 + BRFNG 08:00-08:15; login 08:10',
+        '10,BRFNG,08:00,00:15 + 11,BRFNG,08:10,00:05', r, passed, 'The briefing keeps only the minutes the agent was present for');
+    }
+    // reg-205 — non-overlapping BRFNG and a whole-shift team tag are never touched.
+    {
+      const r = lateCase({ pf: '8199009', login: '08:20', extra: [['BRFNG', '09:00', '09:15'], ['ECS', '08:00', '16:00']] });
+      const passed = has(r.gen, config.aspectNormalActionCode, 'LATE', '08:00', '00:20') && !r.gen.some(c => c.SegmentCode === 'BRFNG' || c.SegmentCode === 'ECS');
+      push('reg-205', 'Guard: A Non-Overlapping BRFNG and an Unlisted Team Tag Are Left Untouched', 'SHIFT + BRFNG 09:00-09:15 + ECS 08:00-16:00; login 08:20',
+        'LATE only; no BRFNG/ECS rows', r, passed, 'Only a listed segment that actually overlaps the late is changed');
+    }
+    // reg-206 — LATE already recorded in ASPECT: no LATE, no COVER, and the briefing is not touched.
+    {
+      const r = lateCase({ pf: '8199010', login: '08:20', extra: [['LATE', '08:00', '08:20'], ['BRFNG', '08:00', '08:15']] });
+      const passed = r.gen.length === 0 || !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'COVER' || c.SegmentCode === 'BRFNG');
+      push('reg-206', 'Guard: Late Already Recorded in ASPECT Gets No Briefing Adjustment', 'SHIFT + LATE 08:00-08:20 (in ASPECT) + BRFNG 08:00-08:15; login 08:20',
+        'no LATE/COVER/BRFNG rows', r, passed, 'A late actioned outside TAA is left entirely to the person who actioned it');
+    }
+    // reg-207 — day becomes Absent: TAA's BRFNG delete is dropped together with the LATE (briefing stays as scheduled).
+    {
+      const r = lateCase({ pf: '8199011', login: '08:20', logout: '13:00', extra: [['BRFNG', '08:00', '08:15']], coverageSwipe: true });
+      const absent = r.row?.TAA_RESULT_CATEGORY === 'MARKED_ABSENT';
+      // retainLateCoverOnAbsent on: the LATE is kept, so its briefing delete is kept with it.
+      const kept = lateCase({ pf: '8199014', login: '08:20', logout: '13:00', extra: [['BRFNG', '08:00', '08:15']], coverageSwipe: true, cfg: { ...config, retainLateCoverOnAbsent: true } });
+      const passed = absent && !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'BRFNG' || c.lateOverlapAdjust)
+        && has(kept.gen, config.aspectNormalActionCode, 'LATE') && has(kept.gen, config.aspectDeleteActionCode, 'BRFNG', '08:00', '00:15');
+      push('reg-207', 'Absent Day: BRFNG Delete Row Is Dropped With the LATE, Briefing Left As Scheduled', 'SHIFT + BRFNG 08:00-08:15; login 08:20, logout 13:00 (Early Logout -> Absent)',
+        'MARKED_ABSENT; no LATE and no BRFNG rows (retainLateCoverOnAbsent on: LATE + BRFNG delete both kept)', r, passed, 'A briefing is never deleted because of a late that the Absent outcome already replaced');
+    }
+    // reg-208 — no hardcoding: renamed codes behave identically, and the shipped names do nothing.
+    {
+      const customCfg: ConfigRegistry = {
+        ...config,
+        segmentGlossary: {
+          ...config.segmentGlossary,
+          'AUTH-L': { code: 'AUTH-L', role: 'NO_EFFECT', description: 'fixture' },
+          HUDDLE: { code: 'HUDDLE', role: 'NO_EFFECT', description: 'fixture' },
+        },
+        authorisedLateSegmentCodes: ['AUTH-L'], lateOverlapAdjustSegmentCodes: ['HUDDLE'], lateSegmentCode: 'LT', aspectDeleteActionCode: '29',
+      };
+      const r = lateCase({ pf: '8199012', login: '08:20', extra: [['AUTH-L', '08:00', '08:05'], ['HUDDLE', '08:05', '08:15'], ['BRFNG', '08:05', '08:15']], cfg: customCfg });
+      const passed = has(r.gen, customCfg.aspectNormalActionCode, 'LT', '08:05', '00:15') && has(r.gen, '29', 'HUDDLE', '08:05', '00:10')
+        && !r.gen.some(c => c.SegmentCode === 'LATE' || c.SegmentCode === 'BRFNG');
+      push('reg-208', 'No Hardcoding: Renamed Late / Authorised / Overlap / Delete Codes Behave Identically', 'Config: AUTH-L, HUDDLE, late code LT, delete 29; AUTH-L 08:00-08:05, HUDDLE + BRFNG 08:05-08:15; login 08:20',
+        'LT 08:05 00:15 + 29,HUDDLE delete; BRFNG untouched', r, passed, 'Every code the rules use is a config value');
+    }
+    // reg-209 — flex late past the cutoff also trims/deletes an overlapping BRFNG.
+    {
+      const r = lateCase({ pf: '8199013', login: '10:20', logout: '18:00', extra: [['BRFNG', '10:00', '10:10']], flex: true });
+      const passed = has(r.gen, config.aspectNormalActionCode, 'LATE', config.flexCutoffTime, '00:20') && has(r.gen, config.aspectDeleteActionCode, 'BRFNG', '10:00', '00:10');
+      push('reg-209', 'Flex Late Past the Cutoff Also Deletes an Overlapping BRFNG', 'FLEX agent, SHIFT 08:00-16:00, BRFNG 10:00-10:10; login 10:20',
+        `LATE ${config.flexCutoffTime} 00:20 + delete BRFNG`, r, passed, 'The briefing rule applies to every late TAA writes, flex included');
+    }
   }
 
   return results;
