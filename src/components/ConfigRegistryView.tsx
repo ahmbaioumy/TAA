@@ -1218,6 +1218,88 @@ export function ConfigRegistryView({ config, onSaveConfig, onDirtyChange }: Conf
               <p className="text-[11px] text-slate-500">
                 When every variance interval a row actually fired an action for (late login, early logout, late logout, or an unattended cover window) sits inside these segments' own windows &mdash; within the tolerance below &mdash; the row is held for review instead of exporting the penalty; the correction is still built, just not sent to payroll until a reviewer releases it. These codes must also be classified NO_EFFECT in the Segment Glossary, or their window still moves and no variance exists to hold. Partial coverage still exports, with the shortfall noted in the trace.
               </p>
+              <label className="flex items-center gap-2 text-slate-800 font-semibold pt-1">
+                <input
+                  type="checkbox"
+                  checked={localConfig.technicalSegmentsExcuseLateLogin}
+                  onChange={(e) => setLocalConfig(prev => ({ ...prev, technicalSegmentsExcuseLateLogin: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                Technical Segments Excuse Late Login
+              </label>
+              <p className="text-[11px] text-slate-500">
+                On: late-login minutes inside a technical segment are never charged (same as an authorised late) &mdash; no LATE, no COVER, no hold; only minutes after the technical segment go through the Late Login bands. Off: a fully covered late is built and held for review as above.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+              <label className="block text-slate-800 font-semibold">
+                Late Segment Code:
+              </label>
+              <input
+                type="text"
+                placeholder="LATE"
+                value={localConfig.lateSegmentCode}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, lateSegmentCode: e.target.value.trim() }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <label className="block text-slate-800 font-semibold pt-1">
+                Authorised Late Segment Codes (Comma-Separated):
+              </label>
+              <input
+                type="text"
+                placeholder="LATE-A"
+                value={localConfig.authorisedLateSegmentCodes.join(', ')}
+                onChange={(e) => setLocalConfig(prev => ({
+                  ...prev,
+                  authorisedLateSegmentCodes: e.target.value.split(',').map(s => s.trim()).filter(Boolean),
+                }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[11px] text-slate-500">
+                A late approved in ASPECT (e.g. during an incident). Late-login minutes inside these segments are treated as already actioned and never charged; if the agent arrived after the authorised window ends, only the extra minutes are charged (LATE + COVER starting where the authorised window ends).
+              </p>
+              <label className="block text-slate-800 font-semibold pt-1">
+                Segments Adjusted Around a TAA Late (Comma-Separated):
+              </label>
+              <input
+                type="text"
+                placeholder="BRFNG"
+                value={localConfig.lateOverlapAdjustSegmentCodes.join(', ')}
+                onChange={(e) => setLocalConfig(prev => ({
+                  ...prev,
+                  lateOverlapAdjustSegmentCodes: e.target.value.split(',').map(s => s.trim()).filter(Boolean),
+                }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[11px] text-slate-500">
+                When TAA adds a LATE that overlaps one of these segments: fully covered by the LATE &rarr; deleted; longer than the LATE &rarr; trimmed to start where the LATE ends (original/new update pair). Never applied to a late already recorded in ASPECT; dropped with the LATE if the day becomes Absent.
+              </p>
+              <label className="block text-slate-800 font-semibold pt-1">
+                ASPECT Delete Action Code:
+              </label>
+              <input
+                type="text"
+                placeholder="20"
+                value={localConfig.aspectDeleteActionCode}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, aspectDeleteActionCode: e.target.value.trim() }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <label className="block text-slate-800 font-semibold pt-1">
+                Delete Memo / Trim Memo:
+              </label>
+              <input
+                type="text"
+                value={localConfig.lateOverlapDeleteMemo}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, lateOverlapDeleteMemo: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
+              <input
+                type="text"
+                value={localConfig.lateOverlapTrimMemo}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, lateOverlapTrimMemo: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 font-mono shadow-2xs focus:outline-none focus:border-indigo-500"
+              />
             </div>
 
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">

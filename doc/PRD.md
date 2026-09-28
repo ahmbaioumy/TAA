@@ -276,7 +276,7 @@ The table below is the complete, verbatim business policy from `Rules to be take
 - **COVER:** A newly assigned cover is added on the **next eligible working day strictly after** the incident (see §4.11 Step 1 for the full target-day algorithm, including the run-date floor), placed after the last segment of that day — not simply "shift end". **Exception:** when `coverSameDayWhenAlreadyCovered` is on and the agent provably already worked the full cover window on the incident day itself, the cover is credited on that **same day** instead (§4.11 Step 1's exception).
 - **LOG OFF:** Segment added on the **same day**, covering the early leave window.
 - **ABSENT / Absent NS/NC:** Full-day day-level marker on the **same day** (`nominateDate = NOM_DATE`, empty start time, empty duration).
-- **Already actioned (business decision 2026-09-27):** when ASPECT already holds a `LATE` segment on the incident's schedule day (NOM_DATE), a Late-and-Cover finding is treated as actioned outside TAA — **no `LATE` and no `COVER`** are emitted, whatever the recorded segment's start or minutes (a recorded 8m LATE against TAA's measured 10m is never topped up with a second LATE). The same applies to `Log_off` for a Log-off-and-Cover finding. The row keeps its verdict (`LATE` / `EARLY_LOGOUT`) with `TAA_ACTION = NO_ACTION` and a trace naming both figures; a flex over-cutoff row keeps only its 10/11 shift-update pair (`SHIFT_UPDATE_FLEX`). Never applies to the ABSENT band (61m+ still marks Absent). Previously an exact-match LATE skipped only the marker and still added the COVER. `reg-142`, `reg-143`, `reg-187`, `reg-188`.
+- **Already actioned (business decision 2026-09-27):** when ASPECT already holds a `LATE` segment on the incident's schedule day (NOM_DATE), a Late-and-Cover finding is treated as actioned outside TAA — **no `LATE` and no `COVER`** are emitted, whatever the recorded segment's start or minutes (a recorded 8m LATE against TAA's measured 10m is never topped up with a second LATE). The same applies to `Log_off` for a Log-off-and-Cover finding. The row keeps its verdict (`LATE` / `EARLY_LOGOUT`) with `TAA_ACTION = NO_ACTION` and a trace naming both figures; a flex over-cutoff row keeps only its 10/11 shift-update pair (`SHIFT_UPDATE_FLEX`). Never applies to the ABSENT band (61m+ still marks Absent). Previously an exact-match LATE skipped only the marker and still added the COVER. `reg-142`, `reg-143`, `reg-187`, `reg-188`. The late code itself is config (`lateSegmentCode`, default `LATE`). An **authorised late** (`LATE-A`) or a technical segment excuses late minutes per §4.15a — unlike a recorded `LATE`, only the minutes it actually covers are excused.
 
 ---
 
@@ -913,6 +913,43 @@ This hold is purely additive over the outcomes described elsewhere in this docum
 changes nothing about how a variance is measured or which action fires, only whether the
 resulting correction is exported immediately or held for one review pass first.
 
+**Late login is excused, not held (2026-09-28).** With `technicalSegmentsExcuseLateLogin` on
+(default), the late-login variance is no longer held by this rule: technical minutes are
+excused up front per §4.15a, so only an uncovered excess is ever charged and a fully covered
+late produces no correction at all. The hold above still applies unchanged to early logout,
+late logout and Cover Not Attended. Turning the toggle off restores the late-login hold
+(`reg-160`–`reg-171` pin it off).
+
+### 4.15a Late Excuse (LATE-A / Technical) and Late Overlap (BRFNG) — business rules 2026-09-28
+
+**Late excuse.** Before the Late Login band is looked up (standard branch from the effective
+start, flex branch from the cutoff), TAA collects the NOM day's excuse segments:
+`authorisedLateSegmentCodes` (default `['LATE-A']` — Late Authorised, approved during an
+incident/critical situation, glossary `NO_EFFECT`) plus `technicalSegmentCodes` when
+`technicalSegmentsExcuseLateLogin` is on. Minutes of the late window inside their union are
+**never charged**:
+- fully covered → treated as already actioned: verdict stays `LATE`, `TAA_ACTION = NO_ACTION`,
+  no `LATE`, no `COVER`, no hold; the trace names the excusing segment(s).
+- partly covered → only the uncovered excess goes through the Late Login bands (so a 3m excess
+  under a 6m band is `NO_ACTION`); the `LATE` starts at the first uncovered minute and lasts the
+  excess, and the `COVER` equals the excess. `TAA_LATE_MIN` still reports the measured late.
+
+**Late overlap.** Whenever TAA itself writes a `LATE` (standard, flex, or an excess), every
+same-NOM-day segment in `lateOverlapAdjustSegmentCodes` (default `['BRFNG']`) that intersects
+the LATE window is corrected so it no longer overlaps:
+- fully inside the LATE (briefing duration ≤ late, same start) → one `aspectDeleteActionCode`
+  (`20`) row repeating the segment's exact code/dates/start/duration, memo `lateOverlapDeleteMemo`.
+- ends after the LATE → a `shiftUpdateOriginalCode`/`shiftUpdateNewCode` (`10`/`11`) pair: the
+  original segment, then the same code starting at the LATE end with the remaining minutes
+  (exact, never rounded, never `00:00`), memo `lateOverlapTrimMemo`.
+- a listed segment starting before the LATE (not expected — a briefing is always within the
+  shift) is left unchanged and noted in the trace.
+
+The briefing rows travel with the LATE: held and released together; on an Absent day they are
+dropped with the LATE (the briefing stays exactly as scheduled), and kept together when
+`retainLateCoverOnAbsent` is on. A late already recorded in ASPECT gets no briefing change.
+No new action or hold code — Hold Policy unchanged. Pinned by `reg-199`–`reg-209`.
+
 ---
 
 ### 4.16 Must Check — A Duplicate View for Rows Where Pay Is Blocked and No One Is Looking
@@ -1347,6 +1384,12 @@ By default (`CMS_AGENTS_SOURCE = COGNOS_AUTO`, the new default), `RunCMSExport` 
 | `coverMinimumDaysAfterRunDate` | `1` day | §4.11 Step 1 — the run-date floor: a newly assigned cover can never be dated on or before `processingDate + coverMinimumDaysAfterRunDate`, regardless of how old the incident is. `processingDate` is the run's own clock time, never persisted into an exported `Config.json` |
 | `technicalSegmentCodes` | `['TECH','TECH2']` | §4.15 — segment codes whose windows count as paid technical-outage time for the new hold. Must also be classified `NO_EFFECT` in the Segment Glossary for a variance to exist to hold in the first place |
 | `technicalSegmentToleranceMinutes` | `0` minutes | §4.15 — slack allowed at the edges of a technical segment's coverage before a fired variance still counts as "covered" |
+| `technicalSegmentsExcuseLateLogin` | `true` | §4.15a — technical segments excuse late-login minutes (no LATE/COVER, no hold) instead of holding; off restores the §4.15 late-login hold |
+| `authorisedLateSegmentCodes` | `['LATE-A']` | §4.15a — authorised-late codes whose windows excuse late-login minutes; only the excess is charged |
+| `lateSegmentCode` | `LATE` | §4.1 / §4.15a — SegmentCode TAA writes for a late and looks for as "already actioned" |
+| `lateOverlapAdjustSegmentCodes` | `['BRFNG']` | §4.15a — segments deleted/trimmed so they never overlap a TAA-written LATE |
+| `aspectDeleteActionCode` | `20` | §4.15a — ASPECT upload code for deleting an existing segment |
+| `lateOverlapDeleteMemo` / `lateOverlapTrimMemo` | `TAA Late covers segment - deleted` / `TAA Late overlap - segment starts after Late` | §4.15a — memos on the delete row / trim pair |
 | Next-working-day / weekend calendar | ASPECT-driven (cover placement only targets days that carry real ASPECT segments) confirmed sufficient, no separate calendar (§8 item 3, closed) | §4.11 Step 1 |
 | Per-source file-parsing settings (encoding, delimiter) | as documented per source in §3 | So a source-format change is a config edit, not a code change |
 | Per-block gap threshold (`perBlockGapThresholdMinutes`) | `60` minutes default, Config Registry-editable. **Comparison only** (DUTY1/DUTY-2 block merge) — does not switch per-block attendance penalties | §4.9 |

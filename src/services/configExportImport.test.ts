@@ -84,6 +84,13 @@ const ALL_CONFIG_KEYS: Record<keyof ConfigRegistry, true> = {
   coverMinimumDaysAfterRunDate: true,
   technicalSegmentCodes: true,
   technicalSegmentToleranceMinutes: true,
+  technicalSegmentsExcuseLateLogin: true,
+  authorisedLateSegmentCodes: true,
+  lateSegmentCode: true,
+  lateOverlapAdjustSegmentCodes: true,
+  aspectDeleteActionCode: true,
+  lateOverlapDeleteMemo: true,
+  lateOverlapTrimMemo: true,
   releaseGridMinutes: true,
   releaseGridCodes: true,
   releaseProvenSafeHolds: true,
@@ -193,6 +200,15 @@ const mutated: ConfigRegistry = {
   // config (WP5/B5/B15) survives export -> import, list and tolerance both.
   technicalSegmentCodes: ['CUSTOM_TECH'],
   technicalSegmentToleranceMinutes: 5,
+  // Deliberately off their defaults — proves the late excuse / late-overlap config
+  // (2026-09-28) survives export -> import.
+  technicalSegmentsExcuseLateLogin: false,
+  authorisedLateSegmentCodes: ['CUSTOM_LATE_A'],
+  lateSegmentCode: 'CUSTOM_LATE',
+  lateOverlapAdjustSegmentCodes: ['CUSTOM_BRF'],
+  aspectDeleteActionCode: '29',
+  lateOverlapDeleteMemo: 'custom delete memo',
+  lateOverlapTrimMemo: 'custom trim memo',
   // Deliberately off its 30 / RLS-family defaults — proves the release-grid flag's config
   // (2026-09-27) survives export -> import.
   releaseGridMinutes: 15,

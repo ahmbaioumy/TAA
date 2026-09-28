@@ -35,7 +35,7 @@ import {
   parseCognosHMinutes,
 } from './parsers';
 import { isForcedHoldReason, HOLD_REASON_TEXT } from './holdReasons';
-import { ConfigValidationIssue, validateConfigForRun } from './configRegistry';
+import { ConfigValidationIssue, DEFAULT_CONFIG, validateConfigForRun } from './configRegistry';
 import { recomputeDaySchedule, DayScheduleRecompute, isCodeInConfiguredSet, isWorkingDaySegment, resolveSegmentMinutes } from './scheduleRecompute';
 import { attributePunches, ScheduledWindow, AttributionResult } from './punchAttribution';
 import { compareCognosRow, ComparisonContext, isCognosSentinel, logoutOutcomeMatchesTaa } from './cognosComparison';
@@ -1332,13 +1332,20 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         // configured otherwise (§4.8, flexBypassesMinuteBands).
         const originalStartHHMM = formatTimeHHMM(rawStartDt);
         lateMin = diffInMinutes(cutoffDt, actualFirstLoginDt!);
-        const bandFires = flexLateBandFires(config, tier, lateMin);
+        // Late excuse (2026-09-28): LATE-A / technical minutes past the cutoff are never
+        // charged — only the excess is; a fully excused late reads as a plain shift update.
+        const flexLateExcuse = computeLateExcuse(cutoffDt, actualFirstLoginDt!, segmentsByEmp.get(pfNo) || [], nomDateStr, config);
+        const flexChargeMin = flexLateExcuse ? flexLateExcuse.excessMin : lateMin;
+        const flexChargeStartDt = flexLateExcuse ? flexLateExcuse.excessStart : cutoffDt;
+        const bandFires = flexChargeMin > 0 && flexLateBandFires(config, tier, flexChargeMin);
         varianceMeasurements.push(traceMeasurement('FLEX_PAST_CUTOFF', `flex cutoff ${cutoffTimeStr} (not the scheduled start)`, cutoffDt, actualFirstLoginDt, lateMin, lookupRule('Late Login', lateMin), referenceDay));
         // "Already actioned" rule (see findAlreadyRecordedIncident): a LATE ASPECT already holds
         // for this day means no LATE and no COVER — only the shift-update pair (a schedule move,
         // not the late itself) is still emitted, so the row reads as a plain flex shift update.
-        const recordedFlexLate = bandFires ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin) : null;
-        chargedVarianceMin = recordedFlexLate ? 0 : lateMin;
+        const recordedFlexLate = flexLateExcuse && flexChargeMin === 0
+          ? { note: flexLateExcuse.note }
+          : bandFires ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, config.lateSegmentCode, lateMin) : null;
+        chargedVarianceMin = recordedFlexLate ? 0 : flexChargeMin;
 
         verdict = 'LATE';
         action = recordedFlexLate ? 'SHIFT_UPDATE_FLEX' : 'SHIFT_UPDATE_AND_LATE_COVER_FLEX';
@@ -1346,7 +1353,9 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         disagreeReason = 'MATCH';
         ruleFired = recordedFlexLate
           ? `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m -> ${recordedFlexLate.note}`
-          : `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
+          : flexLateExcuse
+            ? `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (${flexLateExcuse.note})`
+            : `Flex arrival ${formatTimeHHMM(actualFirstLoginDt!)} past ${cutoffTimeStr} cutoff by ${lateMin}m (Full variance charged)`;
         firedCommunicationRule = 'NA'; // flex over-cutoff Late+Cover carries no email per §4.1 band-1 rows
         pushFiredAction({ actionCode: action, communicationRule: firedCommunicationRule, emailTemplateKey, varianceMin: chargedVarianceMin, note: ruleFired });
 
@@ -1381,17 +1390,22 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
           // WP5/B5/B15 — flex bypasses minute bands by default, so "bandFires" (not a
           // lookupRule() != NO_ACTION check) is this branch's own definition of "the
           // action actually fired".
-          firedVarianceIntervals.push({ label: 'FLEX_PAST_CUTOFF', start: cutoffDt, end: actualFirstLoginDt! });
+          firedVarianceIntervals.push({ label: 'FLEX_PAST_CUTOFF', start: flexChargeStartDt, end: actualFirstLoginDt! });
           rowCorrections.push({
-            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: formatSegmentDate(cutoffDt),
-            SegmentStarttime: cutoffTimeStr, Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Flex Late Login ${lateMin}m past ${cutoffTimeStr}`,
+            Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: config.lateSegmentCode, nominateDate: nomDateStr, SegmentDate: formatSegmentDate(flexChargeStartDt),
+            SegmentStarttime: formatTimeHHMM(flexChargeStartDt), Segmentduration: formatMinutesToHHMM(flexChargeMin), Memo: `TAA Flex Late Login ${flexChargeMin}m past ${cutoffTimeStr}`,
           });
           {
+            const overlap = buildLateOverlapCorrections(flexChargeStartDt, new Date(flexChargeStartDt.getTime() + flexChargeMin * 60000), segmentsByEmp.get(pfNo) || [], nomDateStr, pfNo, config);
+            rowCorrections.push(...overlap.rows);
+            overlap.notes.forEach(n => { ruleFired += ` | ${n}`; });
+          }
+          {
             const coverPlacement = tryPlaceSameDayCover(
-              pfNo, nomDateStr, lateMin, 'afterEnd',
+              pfNo, nomDateStr, flexChargeMin, 'afterEnd',
               { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt: null, shiftEndDt: newEndDt },
               segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, presenceBlocks(closedMatchingPunches), reducedHoursCoverExcluded,
-            ) ?? placeCoverSegment(pfNo, nomDateStr, lateMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, reducedHoursCoverExcluded);
+            ) ?? placeCoverSegment(pfNo, nomDateStr, flexChargeMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, reducedHoursCoverExcluded);
             if (coverPlacement) {
               rowCorrections.push(coverPlacement);
               lateCoverCount++;
@@ -1587,37 +1601,53 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
         };
 
         if (lateMin > 0) {
-          const lateRule = lookupRule('Late Login', lateMin);
-          varianceMeasurements.push(traceMeasurement('LATE_LOGIN', 'effectiveStart (raw start plus any leading release)', effectiveStartDt, actualFirstLoginDt, lateMin, lateRule, referenceDay));
+          // Late excuse (2026-09-28): LATE-A / technical minutes are never charged — only the
+          // excess goes through the bands, and a fully excused late takes no action at all.
+          const lateExcuse = effectiveStartDt && actualFirstLoginDt
+            ? computeLateExcuse(effectiveStartDt, actualFirstLoginDt, segmentsByEmp.get(pfNo) || [], nomDateStr, config)
+            : null;
+          const chargeLateMin = lateExcuse ? lateExcuse.excessMin : lateMin;
+          const chargeLateStartDt = lateExcuse ? lateExcuse.excessStart : effectiveStartDt;
+          const lateRule = chargeLateMin > 0 ? lookupRule('Late Login', chargeLateMin) : null;
+          varianceMeasurements.push(traceMeasurement('LATE_LOGIN', 'effectiveStart (raw start plus any leading release)', effectiveStartDt, actualFirstLoginDt, lateMin, lateRule ?? lookupRule('Late Login', lateMin), referenceDay));
           // "Already actioned" rule: a LATE_AND_COVER finding whose LATE ASPECT already holds
           // takes no further action at all (see findAlreadyRecordedIncident). The ABSENT band
           // is never affected — only the LATE_AND_COVER outcome is.
           const recordedLate = lateRule && lateRule.action === 'LATE_AND_COVER'
-            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, 'LATE', lateMin)
+            ? findAlreadyRecordedIncident(segmentsByEmp.get(pfNo) || [], nomDateStr, config.lateSegmentCode, lateMin)
             : null;
-          if (recordedLate) {
+          const lateLabel = lateExcuse ? `${lateMin}m (${lateExcuse.note})` : `${lateMin}m`;
+          if (lateExcuse && chargeLateMin === 0) {
             if (verdict === 'PRESENT') verdict = 'LATE';
-            ruleFiredParts.push(`${lateRule!.segmentType} (${tier}): ${lateMin}m -> ${recordedLate.note}`);
+            ruleFiredParts.push(`Late Login (${tier}): ${lateMin}m -> ${lateExcuse.note}`);
+          } else if (recordedLate) {
+            if (verdict === 'PRESENT') verdict = 'LATE';
+            ruleFiredParts.push(`${lateRule!.segmentType} (${tier}): ${lateLabel} -> ${recordedLate.note}`);
           } else if (lateRule && lateRule.action !== 'NO_ACTION') {
-            chargedVarianceMin = lateMin;
-            ruleFiredParts.push(`${lateRule.segmentType} (${tier}): ${lateMin}m -> ${lateRule.actionText}`);
+            chargedVarianceMin = chargeLateMin;
+            ruleFiredParts.push(`${lateRule.segmentType} (${tier}): ${lateLabel} -> ${lateRule.actionText}`);
             // WP5/B5/B15 — pushed only once the rule actually fires (never for a
             // below-band measurement), so a stray technical segment can never block a
-            // hold that should never have needed one.
-            if (effectiveStartDt && actualFirstLoginDt) firedVarianceIntervals.push({ label: 'LATE_LOGIN', start: effectiveStartDt, end: actualFirstLoginDt });
+            // hold that should never have needed one. Only the charged (unexcused) part.
+            if (chargeLateStartDt && actualFirstLoginDt) firedVarianceIntervals.push({ label: 'LATE_LOGIN', start: chargeLateStartDt, end: actualFirstLoginDt });
             if (lateRule.action === 'LATE_AND_COVER') {
               applyMoreSevere('LATE_AND_COVER_ADDED', 'LATE_AND_COVER', 'LATE', lateRule.communication, 'late_login_absence');
-              pushFiredAction({ actionCode: 'LATE_AND_COVER', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: lateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
+              pushFiredAction({ actionCode: 'LATE_AND_COVER', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: chargeLateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
               rowCorrections.push({
-                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'LATE', nominateDate: nomDateStr, SegmentDate: effectiveStartDt ? formatSegmentDate(effectiveStartDt) : nomDateStr,
-                SegmentStarttime: effectiveStartDt ? formatTimeHHMM(effectiveStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(lateMin), Memo: `TAA Late Login ${lateMin}m`,
+                Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: config.lateSegmentCode, nominateDate: nomDateStr, SegmentDate: chargeLateStartDt ? formatSegmentDate(chargeLateStartDt) : nomDateStr,
+                SegmentStarttime: chargeLateStartDt ? formatTimeHHMM(chargeLateStartDt) : '08:00', Segmentduration: formatMinutesToHHMM(chargeLateMin), Memo: `TAA Late Login ${chargeLateMin}m`,
               });
+              if (chargeLateStartDt) {
+                const overlap = buildLateOverlapCorrections(chargeLateStartDt, new Date(chargeLateStartDt.getTime() + chargeLateMin * 60000), segmentsByEmp.get(pfNo) || [], nomDateStr, pfNo, config);
+                rowCorrections.push(...overlap.rows);
+                overlap.notes.forEach(n => ruleFiredParts.push(n));
+              }
               {
                 const lateCover = tryPlaceSameDayCover(
-                  pfNo, nomDateStr, lateMin, 'afterEnd',
+                  pfNo, nomDateStr, chargeLateMin, 'afterEnd',
                   { firstLoginDt: actualFirstLoginDt, lastLogoutDt: actualLastLogoutDt, effectiveStartDt, shiftEndDt: effectiveEndDt },
                   segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, presenceBlocks(closedMatchingPunches), reducedHoursCoverExcluded,
-                ) ?? placeCoverSegment(pfNo, nomDateStr, lateMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, reducedHoursCoverExcluded);
+                ) ?? placeCoverSegment(pfNo, nomDateStr, chargeLateMin, segmentsByEmp.get(pfNo) || [], placedCoversThisRun, config, processingDate, reducedHoursCoverExcluded);
                 if (lateCover) {
                   rowCorrections.push(lateCover);
                   lateCoverCount++;
@@ -1628,10 +1658,10 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
               }
             } else if (lateRule.action === 'ABSENT_SEGMENT') {
               applyMoreSevere('MARKED_ABSENT', 'ABSENT_SEGMENT', 'ABSENT', lateRule.communication, 'late_login_absence');
-              pushFiredAction({ actionCode: 'ABSENT_SEGMENT', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: lateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
+              pushFiredAction({ actionCode: 'ABSENT_SEGMENT', communicationRule: lateRule.communication, emailTemplateKey: 'late_login_absence', varianceMin: chargeLateMin, note: ruleFiredParts[ruleFiredParts.length - 1] });
               rowCorrections.push({
                 Code: config.aspectNormalActionCode, ID: pfNo, SegmentCode: 'ABSENT', nominateDate: nomDateStr, SegmentDate: '',
-                SegmentStarttime: '', Segmentduration: '', Memo: `TAA Late Login ${lateMin}m Exceeds Threshold`,
+                SegmentStarttime: '', Segmentduration: '', Memo: `TAA Late Login ${chargeLateMin}m Exceeds Threshold`,
               });
               markedAbsentCount++;
               otConvertedCount += convertOtOnce();
@@ -1837,10 +1867,12 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
     // untouched (convertOtOnce already guards it); firedActionCodes is untouched so
     // TAA_ACTIONS_FIRED still shows every rule that genuinely fired, for audit.
     if (resultCategory === 'MARKED_ABSENT' && !config.retainLateCoverOnAbsent) {
-      const STRIPPED_ON_ABSENT = new Set(['LATE', 'Log_off', 'COVER']);
+      // lateOverlapAdjust rows (BRFNG delete/trim) exist only because of the LATE — dropped with
+      // it, so the briefing stays exactly as scheduled on an Absent day.
+      const STRIPPED_ON_ABSENT = lateCoverSegmentCodes(config);
       for (let i = rowCorrections.length - 1; i >= 0; i--) {
         const c = rowCorrections[i];
-        if (!STRIPPED_ON_ABSENT.has(c.SegmentCode)) continue;
+        if (!STRIPPED_ON_ABSENT.has(c.SegmentCode) && !c.lateOverlapAdjust) continue;
         if (c.SegmentCode === 'COVER') {
           // Release the reservation this COVER claimed in placedCoversThisRun —
           // otherwise the NEXT cover placed for this employee/target-day would
@@ -1986,7 +2018,7 @@ export function runReconciliation(input: ReconciliationInput): ReconciliationOut
       netScheduledMinutes: recompute.netScheduledMinutes,
       removalMinutes: recompute.releaseMinutes + recompute.nursingMinutes + recompute.otInternalRemovalMinutes,
       lateSegmentMinutes: empSegs
-        .filter(x => (x.SEG_CODE || '').trim().toUpperCase() === 'LATE')
+        .filter(x => (x.SEG_CODE || '').trim().toUpperCase() === config.lateSegmentCode.trim().toUpperCase())
         .reduce((acc, x) => acc + (x.DURATION ?? 0), 0),
       coverMinutes: empSegs
         .filter(x => (x.SEG_CODE || '').trim().toUpperCase() === 'COVER')
@@ -4018,7 +4050,7 @@ function recordedSegMinutes(seg: AspectSegment): number | null {
  * LATE (which is what the previous exact start+duration match exported) and never a COVER on
  * top of it. The caller keeps the verdict for the reviewer and traces both figures. */
 function findAlreadyRecordedIncident(
-  empSegments: AspectSegment[], incidentNomDateStr: string, code: 'LATE' | 'Log_off', measuredMinutes: number,
+  empSegments: AspectSegment[], incidentNomDateStr: string, code: string, measuredMinutes: number,
 ): RecordedIncident | null {
   const incidentKey = normalizeDateKey(incidentNomDateStr) || incidentNomDateStr;
   const markers = empSegments.filter(s => segCodeIs(s, code) && segNomKey(s) === incidentKey);
@@ -4031,6 +4063,86 @@ function findAlreadyRecordedIncident(
   return {
     note: `ASPECT already has ${code} ${markers.map(describe).join(', ')} vs TAA ${measuredMinutes}m — already actioned, no correction (no ${code}, no COVER)`,
   };
+}
+
+/** Late excuse (business rule 2026-09-28). Segments on the incident's NOM day that excuse
+ * late-login minutes: config.authorisedLateSegmentCodes (e.g. LATE-A, approved during an
+ * incident) always, config.technicalSegmentCodes (TECH/TECH2) when
+ * technicalSegmentsExcuseLateLogin is on. Returns null when none of them intersects the late
+ * window — the caller then behaves exactly as before this rule existed. Otherwise the excused
+ * minutes are never charged: excessMin is what is left uncovered, and excessStart is the first
+ * uncovered minute (where the LATE for the excess starts). */
+interface LateExcuse { excessMin: number; excessStart: Date; excusedMin: number; note: string }
+function computeLateExcuse(
+  lateStart: Date, lateEnd: Date, empSegments: AspectSegment[], nomDateStr: string, config: ConfigRegistry,
+): LateExcuse | null {
+  if (!(lateEnd.getTime() > lateStart.getTime())) return null;
+  const nomKey = normalizeDateKey(nomDateStr) || nomDateStr;
+  const excuseCodes = [
+    ...(config.authorisedLateSegmentCodes || []),
+    ...(config.technicalSegmentsExcuseLateLogin ? (config.technicalSegmentCodes || []) : []),
+  ];
+  if (excuseCodes.length === 0) return null;
+  const hits = empSegments
+    .filter(s => segNomKey(s) === nomKey && isCodeInConfiguredSet(s.SEG_CODE, excuseCodes))
+    .map(s => ({ seg: s, iv: coverIntervalsFromSegments([s])[0] }))
+    .filter(h => h.iv && h.iv.end.getTime() > lateStart.getTime() && h.iv.start.getTime() < lateEnd.getTime());
+  if (hits.length === 0) return null;
+  const intervals = hits.map(h => h.iv);
+  const totalMin = Math.ceil((lateEnd.getTime() - lateStart.getTime()) / 60000);
+  const excessMin = uncoveredMinutes(lateStart, lateEnd, intervals);
+  const remaining = subtractIntervals({ start: lateStart, end: lateEnd }, intervals);
+  const excessStart = remaining.length > 0 ? remaining[0].start : lateEnd;
+  const codes = [...new Set(hits.map(h => `${h.seg.SEG_CODE} ${formatTimeHHMM(h.iv.start)}-${formatTimeHHMM(h.iv.end)}`))];
+  const excusedMin = Math.max(0, totalMin - excessMin);
+  const note = excessMin === 0
+    ? `excused by ${codes.join(', ')} (${excusedMin}m) — no correction (no ${config.lateSegmentCode}, no COVER)`
+    : `${excusedMin}m excused by ${codes.join(', ')}, ${excessMin}m charged from ${formatTimeHHMM(excessStart)}`;
+  return { excessMin, excessStart, excusedMin, note };
+}
+
+/** Late overlap (business rule 2026-09-28): a TAA-written late must not overlap a
+ * config.lateOverlapAdjustSegmentCodes segment (default BRFNG) on the same NOM day. A listed
+ * segment lying fully inside [lateStart, lateEnd) is deleted (aspectDeleteActionCode row that
+ * repeats the segment's identifying fields); one that starts inside the window and ends after it
+ * is trimmed to start at lateEnd via a shiftUpdateOriginalCode/shiftUpdateNewCode pair — exact
+ * minutes, never rounded, never 00:00. A listed segment starting before the late (not expected:
+ * a briefing is always within the shift) is left untouched and only noted. Every row is tagged
+ * lateOverlapAdjust so it is dropped together with the late on an Absent day. */
+function buildLateOverlapCorrections(
+  lateStart: Date, lateEnd: Date, empSegments: AspectSegment[], nomDateStr: string, pfNo: string, config: ConfigRegistry,
+): { rows: AspectCorrectionRow[]; notes: string[] } {
+  const rows: AspectCorrectionRow[] = [];
+  const notes: string[] = [];
+  const codes = config.lateOverlapAdjustSegmentCodes || [];
+  if (codes.length === 0 || !(lateEnd.getTime() > lateStart.getTime())) return { rows, notes };
+  const nomKey = normalizeDateKey(nomDateStr) || nomDateStr;
+  for (const seg of empSegments) {
+    if (segNomKey(seg) !== nomKey || !isCodeInConfiguredSet(seg.SEG_CODE, codes)) continue;
+    const iv = coverIntervalsFromSegments([seg])[0];
+    if (!iv || iv.end.getTime() <= lateStart.getTime() || iv.start.getTime() >= lateEnd.getTime()) continue;
+    const segMin = Math.round((iv.end.getTime() - iv.start.getTime()) / 60000);
+    const original = {
+      ID: pfNo, SegmentCode: seg.SEG_CODE, nominateDate: nomDateStr, SegmentDate: formatSegmentDate(iv.start),
+      SegmentStarttime: formatTimeHHMM(iv.start), Segmentduration: formatMinutesToHHMM(segMin),
+    };
+    const label = `${seg.SEG_CODE} ${formatTimeHHMM(iv.start)}-${formatTimeHHMM(iv.end)}`;
+    if (iv.start.getTime() < lateStart.getTime()) {
+      notes.push(`${label} starts before the ${config.lateSegmentCode} — left unchanged`);
+    } else if (iv.end.getTime() <= lateEnd.getTime()) {
+      rows.push({ Code: config.aspectDeleteActionCode, ...original, Memo: config.lateOverlapDeleteMemo, lateOverlapAdjust: true });
+      notes.push(`${label} fully covered by the ${config.lateSegmentCode} — deleted`);
+    } else {
+      const newMin = Math.round((iv.end.getTime() - lateEnd.getTime()) / 60000);
+      rows.push({ Code: config.shiftUpdateOriginalCode, ...original, Memo: config.lateOverlapTrimMemo, lateOverlapAdjust: true });
+      rows.push({
+        Code: config.shiftUpdateNewCode, ID: pfNo, SegmentCode: seg.SEG_CODE, nominateDate: nomDateStr, SegmentDate: formatSegmentDate(lateEnd),
+        SegmentStarttime: formatTimeHHMM(lateEnd), Segmentduration: formatMinutesToHHMM(newMin), Memo: config.lateOverlapTrimMemo, lateOverlapAdjust: true,
+      });
+      notes.push(`${label} trimmed to start ${formatTimeHHMM(lateEnd)} (${newMin}m) — no overlap with the ${config.lateSegmentCode}`);
+    }
+  }
+  return { rows, notes };
 }
 
 function placeCoverSegment(
@@ -4310,7 +4422,10 @@ export function describeDisagreement(row: ReconciliationRow): string {
     : `Cognos mismatch: ${row.TAA_MISMATCH_COLUMNS}`;
 }
 
-export const LATE_COVER_SEGMENT_CODES = new Set(['LATE', 'Log_off', 'COVER']);
+/** Late/Log_off/COVER correction codes. The late code comes from config.lateSegmentCode (never a
+ * literal); the row-level helpers below have no config in hand and use the shipped default. */
+export const lateCoverSegmentCodes = (config: ConfigRegistry): Set<string> => new Set([config.lateSegmentCode, 'Log_off', 'COVER']);
+export const LATE_COVER_SEGMENT_CODES = lateCoverSegmentCodes(DEFAULT_CONFIG);
 export const rowHasLateCoverCorrection = (row: ReconciliationRow): boolean =>
   row.details.generatedCorrections.some(c => LATE_COVER_SEGMENT_CODES.has(c.SegmentCode));
 

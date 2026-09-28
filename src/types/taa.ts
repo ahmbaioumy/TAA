@@ -621,6 +621,34 @@ export interface ConfigRegistry {
    * be exact. Partial coverage below this tolerance still exports the correction, with
    * the shortfall noted in the trace — never silently dropped and never silently held. */
   technicalSegmentToleranceMinutes: number;
+  /** Late excuse (business rule 2026-09-28): when true, a technicalSegmentCodes segment on the
+   * NOM day excuses the late-login minutes it covers exactly like an authorised-late segment
+   * (authorisedLateSegmentCodes) — covered minutes are never charged, only the minutes left
+   * uncovered go through the Late Login bands, and a fully covered late needs no correction and
+   * no hold. TECH stays NO_EFFECT (paid). false restores the pre-2026-09-28 behaviour: a fully
+   * covered late builds LATE+COVER and holds as TECHNICAL_SEGMENT_COVERS_VARIANCE. The
+   * TECHNICAL_SEGMENT_COVERS_VARIANCE hold for the other variances is unaffected either way. */
+  technicalSegmentsExcuseLateLogin: boolean;
+  /** Authorised late (e.g. LATE-A, approved during an incident/critical situation). Matched via
+   * isCodeInConfiguredSet on the NOM day. Late-login minutes inside these segments' windows are
+   * treated as already actioned — never charged; only the excess (if any) is charged through
+   * the Late Login bands, with the LATE starting at the first uncovered minute. */
+  authorisedLateSegmentCodes: string[];
+  /** SegmentCode TAA writes for a late-login correction and looks for when deciding a late is
+   * already recorded in ASPECT. Default "LATE". */
+  lateSegmentCode: string;
+  /** Segment codes (default ['BRFNG']) that must not overlap a TAA-written late segment. A
+   * listed segment fully inside the late window is deleted (aspectDeleteActionCode row); one
+   * that starts inside the window and ends after it is trimmed to start at the late end
+   * (shiftUpdateOriginalCode/shiftUpdateNewCode pair). Only ever applied to a late TAA itself
+   * writes — never to one already recorded in ASPECT. */
+  lateOverlapAdjustSegmentCodes: string[];
+  /** ASPECT upload action code for deleting an existing segment. Default "20". */
+  aspectDeleteActionCode: string;
+  /** Memo written on the delete row of a segment fully covered by a TAA late. */
+  lateOverlapDeleteMemo: string;
+  /** Memo written on the 10/11 pair trimming a segment to start at the TAA late's end. */
+  lateOverlapTrimMemo: string;
   /** Release grid (business rule 2026-09-27): a release is only ever booked on this grid —
    * e.g. 30 => starts/stops at :00 or :30, never 14:35 or 15:22. A releaseGridCodes segment off
    * the grid is FLAGGED (TAA_DISAGREE_REASON RELEASE_OFF_GRID + a trace line), never held and
@@ -911,6 +939,10 @@ export interface AspectCorrectionRow {
    * matters. fixed = a same-day cover credited against proven attendance: never moved, and its
    * group is left exactly as placed. */
   coverSlot?: { key: string; fixed?: boolean; baseStartMs?: number; durationMin?: number; incidentNomDate?: string };
+  /** Marks a delete/trim row that exists only because of a TAA-written late overlapping a
+   * lateOverlapAdjustSegmentCodes segment (e.g. BRFNG) — NEVER exported. Such a row is dropped
+   * together with the late when the day becomes Absent, so the segment stays as scheduled. */
+  lateOverlapAdjust?: boolean;
 }
 
 export interface EmailActionItem {
